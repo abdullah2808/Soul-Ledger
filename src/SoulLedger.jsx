@@ -282,6 +282,8 @@ header.top{
 }
 .tag.active-tag{ color:var(--souls); border-color:#5c4c1f; }
 .tag.cond-tag{ color:#e0925c; border-color:#5c3d1f; }
+.tag.upgrade-tag{ color:var(--spirit); border-color:var(--spirit-dim); }
+.tag.upgrade-tag.ready{ color:var(--souls); border-color:#5c4c1f; background:#1e1a10; }
 
 /* ===== Hero Abilities Section ===== */
 .abilities-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px; }
@@ -294,10 +296,12 @@ header.top{
 .ability-meta{ margin:5px 0 7px; color:var(--text-dim); font:10.5px/1.45 'IBM Plex Mono',monospace; }
 .ability-meta b{ color:var(--text); }
 .ability-impact{ color:var(--vitality); }
-.ability-stat-icon{ display:inline-block; width:16px; color:var(--souls); font-size:13px; }
+.ability-stat-icon{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:14px; color:var(--souls); font-size:13px; line-height:1; vertical-align:-1px; }
+.ability-stat-line{ position:relative; cursor:help; }
+.ability-stat-line:hover .stat-tooltip{ display:block; }
 .ability-hover-info{ display:none; position:absolute; z-index:25; left:8px; right:8px; top:52px; padding:9px 10px; background:#0d0f12; border:1px solid var(--spirit); border-radius:var(--radius); box-shadow:0 8px 20px #000b; color:var(--text-dim); font-size:11px; line-height:1.45; pointer-events:none; }
-.ability-card:hover .ability-hover-info{ display:block; }
-.ability-head{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.ability-head{ display:flex; align-items:center; gap:8px; margin-bottom:6px; position:relative; cursor:help; }
+.ability-head:hover + .ability-hover-info{ display:block; }
 .ability-img{ width:32px; height:32px; object-fit:contain; background:#00000060; border-radius:3px; flex-shrink:0; }
 .ability-title-box{ flex:1; }
 .ability-name{ font-family:'Rajdhani',sans-serif; font-weight:700; font-size:15px; color:var(--text); line-height:1.1; }
@@ -494,7 +498,7 @@ function buildFallbackIndex(list){
 }
 
 function formatBonusText(propName, bonusVal) {
-  const num = Number(bonusVal);
+  const num = parseFloat(bonusVal);
   const sign = num > 0 ? "+" : "";
   const prettyName = propName
     .replace(/([A-Z])/g, ' $1')
@@ -511,6 +515,16 @@ function formatBonusText(propName, bonusVal) {
 function cleanApiText(value){
   if (typeof value !== "string") return "";
   return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// API description fields are usually { desc, quip, t3_desc } rather than a
+// plain string, so a direct cleanApiText(obj) always comes back empty.
+function getDescriptionText(source){
+  if (typeof source === "string") return cleanApiText(source);
+  if (source && typeof source === "object") {
+    return cleanApiText(source.desc || source.description || source.lore || source.effect || "");
+  }
+  return "";
 }
 
 function findApiNumber(source, patterns){
@@ -545,20 +559,83 @@ function findApiText(source, patterns){
   return "";
 }
 
+// Damage-carrying properties encode spirit/weapon scaling as a nested
+// scale_function rather than a separate flat number, e.g.
+// properties.DPS = { value: 22, scale_function: { specific_stat_scale_type: "ETechPower", stat_scale: 0.6 } }
+// meaning DPS = 22 + 0.6 * SpiritPower. ETechPower is Deadlock's internal name
+// for Spirit Power; EWeaponPower is the equivalent for weapon damage scaling.
+function extractDamageStats(abilityObj){
+  if (!abilityObj?.properties) return [];
+  const results = [];
+  for (const [key, prop] of Object.entries(abilityObj.properties)) {
+    if (!prop || typeof prop !== "object") continue;
+    const label = String(prop.label || "");
+    const labelLower = label.toLowerCase();
+    const looksLikeDamage = labelLower ? labelLower.includes("damage") : key.toLowerCase().includes("damage");
+    if (!looksLikeDamage) continue;
+    if (/threshold|resist|reduction|percent|\bpct\b/.test(labelLower)) continue;
+    const base = Number(prop.value);
+    if (isNaN(base) || base === 0) continue;
+    const scaleType = prop.scale_function?.specific_stat_scale_type;
+    const statScale = Number(prop.scale_function?.stat_scale) || 0;
+    results.push({
+      key,
+      label: label || key.replace(/([A-Z])/g, " $1").trim(),
+      base,
+      spiritScale: scaleType === "ETechPower" ? statScale : 0,
+      weaponScale: scaleType === "EWeaponPower" ? statScale : 0,
+    });
+  }
+  return results.slice(0, 4);
+}
+
+// Source-engine weapon data reports bullet_speed in inches/s (1 Hammer unit = 1 inch);
+// the UI shows the player-facing m/s value used on deadlock.wiki. Verified against
+// deadlock.wiki's Hero Comparison Table across 37 heroes: raw/wiki ratio clusters at 39.37,
+// i.e. the standard inches-per-metre conversion (1m = 39.3701 in), not a bespoke constant.
+const HAMMER_UNITS_PER_METER = 39.3701;
 function normalizeBulletVelocity(value){
   const numericValue = Number(value) || 0;
-  // KV3 weapon data uses Source units for some weapons; the UI displays the
-  // player-facing metres-per-second value.
-  return numericValue > 1000 ? numericValue / 24.2424 : numericValue;
+  return numericValue / HAMMER_UNITS_PER_METER;
+}
+
+// Some abilities spawn a projectile/turret/prop that persists on its own timer
+// (e.g. Call Bell's "Bell Lifetime", Mini Turret's "Lifetime") — distinct from the
+// ability's own cast/active AbilityDuration. These are reliably labeled "Lifetime"
+// (unlike the property *key*, e.g. "ProjectileFuse", which varies per ability), so
+// match on label text rather than key name.
+function extractLifetimeStats(abilityObj){
+  if (!abilityObj?.properties) return [];
+  const results = [];
+  for (const [key, prop] of Object.entries(abilityObj.properties)) {
+    if (!prop || typeof prop !== "object") continue;
+    if (!/lifetime/i.test(String(prop.label || ""))) continue;
+    const value = Number(prop.value);
+    if (isNaN(value) || value === 0) continue;
+    if (prop.disable_value !== undefined && String(prop.disable_value) === String(prop.value)) continue;
+    results.push({ key, label: prop.label, value });
+  }
+  return results.slice(0, 2);
 }
 
 function extractAbilityMeta(abilityObj){
+  // AbilityCooldown/AbilityCharges/AbilityCooldownBetweenCharge/AbilityDuration are
+  // the canonical property keys Deadlock uses across every signature ability — read
+  // them directly rather than fuzzy-matching key names, which risks grabbing an
+  // unrelated stat (e.g. a target debuff's own "...Duration" property).
+  const props = abilityObj?.properties || {};
+  const numOrNull = (p) => {
+    const n = Number(p?.value);
+    return (p && !isNaN(n) && n !== 0) ? n : null;
+  };
   return {
-    description: cleanApiText(abilityObj?.description || abilityObj?.ability_description || abilityObj?.desc || abilityObj?.effect) || findApiText(abilityObj, ["description", "abilitydescription", "lore", "effect", "tooltip", "details"]),
-    cooldown: findApiNumber(abilityObj, ["cooldown", "cooldowntime"]),
-    duration: findApiNumber(abilityObj, ["duration", "castduration", "channelduration"]),
-    charges: findApiNumber(abilityObj, ["maxcharges", "charges", "abilitycharges"]),
-    chargeDelay: findApiNumber(abilityObj, ["chargedelay", "timebetweencharges"]),
+    description: getDescriptionText(abilityObj?.description) || cleanApiText(abilityObj?.ability_description || abilityObj?.desc || abilityObj?.effect) || findApiText(abilityObj, ["description", "desc", "abilitydescription", "lore", "effect", "tooltip", "details"]),
+    cooldown: numOrNull(props.AbilityCooldown),
+    duration: numOrNull(props.AbilityDuration),
+    charges: numOrNull(props.AbilityCharges),
+    chargeDelay: numOrNull(props.AbilityCooldownBetweenCharge),
+    damageStats: extractDamageStats(abilityObj),
+    lifetimeStats: extractLifetimeStats(abilityObj),
   };
 }
 
@@ -607,7 +684,17 @@ async function fetchDeadlockData(signal){
         const stamina = h.starting_stats?.stamina?.value ?? match?.s ?? 3;
         const bulletDmg = wInfo.bullet_damage ?? wInfo.damage_per_shot ?? match?.d ?? 10;
         const clipSize = findApiNumber(wInfo, ["clipsize", "clipcapacity"]) || findApiNumber(h.starting_stats, ["clipsize", "clipcapacity"]) || match?.clip || 0;
-        const bulletVelocity = normalizeBulletVelocity(findApiNumber(wInfo, ["bulletvelocity", "bulletspeed", "projectilespeed"]) || findApiNumber(h.starting_stats, ["bulletvelocity", "bulletspeed"]) || match?.bulletVelocity || 0);
+        const rawBulletVelocity = findApiNumber(wInfo, ["bulletvelocity", "bulletspeed", "projectilespeed"]) || findApiNumber(h.starting_stats, ["bulletvelocity", "bulletspeed"]);
+        // Only raw Hammer-unit values from the API need converting — the fallback
+        // snapshot's bulletVelocity constants are already stored in m/s.
+        const bulletVelocity = rawBulletVelocity ? normalizeBulletVelocity(rawBulletVelocity) : (match?.bulletVelocity || 0);
+        // Sprint Speed is a standalone bonus (m/s) added on top of Move Speed while
+        // sprinting, not a multiplier — matches deadlock.wiki's per-hero values exactly.
+        const sprintSpeed = h.starting_stats?.sprint_speed?.value ?? match?.sprint ?? 1.6;
+        // Some heroes have an innate (often negative) resistance baked into their kit,
+        // e.g. Pocket's -15% Spirit Resist — surface it instead of assuming 0.
+        const bulletArmor = Number(h.starting_stats?.bullet_armor_damage_reduction?.value) || 0;
+        const spiritArmor = Number(h.starting_stats?.tech_armor_damage_reduction?.value) || 0;
         const roleCandidate = h.description?.role || h.description?.playstyle || match?.role || "";
         const role = !roleCandidate || roleCandidate.trim().toLowerCase() === "hero"
           ? (match?.role || "Versatile fighter")
@@ -629,7 +716,12 @@ async function fetchDeadlockData(signal){
           const upgrades = (abilityObj?.upgrades || []).map((u, uIdx) => {
             const bonuses = (u.property_upgrades || []).map(pu => ({
               prop: pu.name,
-              bonus: pu.bonus,
+              bonus: parseFloat(pu.bonus) || 0,
+              // scale_stat_filter + upgrade_type (e.g. "ETechPower"/"EAddToScale") mean
+              // this upgrade adds to the ability's spirit/weapon scaling ratio rather
+              // than a flat amount of the stat itself.
+              scaleFilter: pu.scale_stat_filter || null,
+              scaleType: pu.upgrade_type || null,
               formatted: formatBonusText(pu.name, pu.bonus)
             }));
             return {
@@ -649,6 +741,8 @@ async function fetchDeadlockData(signal){
             duration: meta.duration ?? (name === "Call Bell" ? 4 : null),
             charges: meta.charges ?? (name === "Call Bell" ? 1 : null),
             chargeDelay: meta.chargeDelay,
+            damageStats: meta.damageStats,
+            lifetimeStats: meta.lifetimeStats,
             upgrades
           };
         });
@@ -673,6 +767,9 @@ async function fetchDeadlockData(signal){
           bulletVelocity: Number(bulletVelocity) || 0,
           m: Number(move) || 7,
           s: Number(stamina) || 3,
+          sprint: Number(sprintSpeed) || 1.6,
+          bulletArmor,
+          spiritArmor,
           image: h.images?.card_image || h.images?.icon_hero_card || h.images?.small_image,
           icon: h.images?.icon_image_small || h.images?.minimap_image || h.images?.small_image,
           abilities: signatureAbilities,
@@ -720,6 +817,7 @@ async function fetchDeadlockData(signal){
           else if (['TechArmorDamageReduction', 'SpiritResist', 'TechArmor'].includes(k)) mods.spiritArmor = val;
           else if (['AbilityCooldownReduction', 'TechCooldown'].includes(k)) mods.cdr = Math.abs(val);
           else if (['ImbuedBonusDuration', 'BonusAbilityDurationPercent', 'AbilityDuration'].includes(k)) mods.abilityDuration = val;
+          else if (['AbilityCharges', 'BonusAbilityCharges', 'AdditionalAbilityCharges', 'MaxAbilityCharges'].includes(k)) mods.abilityCharges = val;
 
           const sign = val > 0 ? '+' : '';
           const postfix = p.postfix || '';
@@ -727,7 +825,7 @@ async function fetchDeadlockData(signal){
         });
       }
 
-      let description = cleanApiText(i.description) || match?.effect || '';
+      let description = getDescriptionText(i.description) || match?.effect || '';
       if (!description) {
         if (statDisplays.length > 0) {
           description = statDisplays.map(s => `${s.label}: ${s.value}`).join(' · ');
@@ -735,6 +833,12 @@ async function fetchDeadlockData(signal){
           description = "Deadlock shop upgrade.";
         }
       }
+
+      // Some items are upgrades of a cheaper item (e.g. Tankbuster upgrades from
+      // Mystic Burst) — component_items holds the class_names of those prerequisites.
+      const upgradesFrom = (i.component_items || [])
+        .map(className => itemByClassName.get(className)?.name)
+        .filter(Boolean);
 
       return {
         id: i.id,
@@ -749,9 +853,21 @@ async function fetchDeadlockData(signal){
         mods,
         statDisplays: statDisplays.slice(0, 4),
         tags: match?.tags || [cat.toUpperCase(), 'T' + tier],
+        upgradesFrom,
+        upgradesInto: [],
         live: true
       };
     });
+
+    // Reverse the upgradesFrom relationship so a base item also knows what it upgrades into.
+    const upgradesIntoMap = new Map();
+    items.forEach(it => {
+      it.upgradesFrom.forEach(baseName => {
+        if (!upgradesIntoMap.has(baseName)) upgradesIntoMap.set(baseName, []);
+        upgradesIntoMap.get(baseName).push(it.n);
+      });
+    });
+    items.forEach(it => { it.upgradesInto = upgradesIntoMap.get(it.n) || []; });
 
     if (heroes.length === 0 || items.length === 0) throw new Error("API returned empty datasets");
 
@@ -771,11 +887,11 @@ function baseValue(hero, k){
     case "fireRate": return 100;
     case "clip": return hero.clip || 0;
     case "bulletVelocity": return hero.bulletVelocity || 0;
-    case "bulletArmor": return 0;
-    case "spiritArmor": return 0;
+    case "bulletArmor": return hero.bulletArmor || 0;
+    case "spiritArmor": return hero.spiritArmor || 0;
     case "cdr": return 0;
     case "move": return hero.m;
-    case "sprint": return 0;
+    case "sprint": return hero.sprint ?? 1.6;
     case "stamina": return hero.s;
     default: return 0;
   }
@@ -869,6 +985,21 @@ function computeFinalDeltas(hero, build, unlockedBoons, unlockedAbilityTiers, un
   return { raw, inv, abDeltas, final, boons: { count: unlockedBoons, hp: boonHpBonus, dmgPct: boonDmgPct, spirit: boonSpiritBonus } };
 }
 
+// Reusable calculation-breakdown popover for ability stat lines, styled to match
+// the left-panel stat-sheet tooltips (.stat-tooltip).
+function CalcTooltip({ title, lines }){
+  return (
+    <div className="stat-tooltip">
+      <div className="stat-tooltip-title">{title}</div>
+      {lines.filter(Boolean).map((line, i) => (
+        <div className="stat-tooltip-line" key={i}>
+          <span>{line.label}</span><b>{line.value}</b>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function SoulLedger(){
   const [heroes, setHeroes] = useState(FALLBACK_HEROES);
   const [items, setItems] = useState(FALLBACK_ITEMS);
@@ -941,6 +1072,23 @@ export default function SoulLedger(){
 
     if (it.active && build.filter(item => item.active).length >= 4) {
       setSlotLimitWarning("Active item limit reached (4 maximum). Remove an active item before adding another.");
+      return;
+    }
+
+    // Upgrading: if the build already owns one or more of this item's component
+    // items, they get consumed into the upgrade's slot instead of costing a new one
+    // (mirrors how upgrades absorb their prerequisite item in-game).
+    const ownedComponentNames = (it.upgradesFrom || []).filter(name => build.some(b => b.n === name));
+    if (ownedComponentNames.length > 0) {
+      setBuild(prev => {
+        const next = [...prev];
+        ownedComponentNames.forEach(name => {
+          const idx = next.findIndex(b => b.n === name);
+          if (idx !== -1) next.splice(idx, 1);
+        });
+        next.push(it);
+        return next;
+      });
       return;
     }
 
@@ -1356,9 +1504,43 @@ export default function SoulLedger(){
                     const abilityUnlocked = !!unlockedAbilitySlots[ab.key];
                     const canUnlock = !abilityUnlocked && abilityUnlocks > Object.values(unlockedAbilitySlots).filter(Boolean).length && (abilityIndex < 3 || level >= 7);
                     const lockUnavailable = !abilityUnlocked && !canUnlock;
-                    const adjustedCooldown = ab.cooldown == null ? null : Math.max(0, ab.cooldown * (1 - Math.max(0, totals.cdr || 0) / 100));
+                    const activeUpgradeBonuses = (ab.upgrades || []).filter(u => unlockedAbilityTiers[`${ab.key}_T${u.tier}`]).flatMap(u => u.bonuses || []);
+                    // Match against the canonical property names exactly (not a fuzzy
+                    // substring) — abilities also carry unrelated props like "StunDuration"
+                    // or "AbilityCooldownBetweenCharge" that would otherwise false-positive.
+                    const upgradeChargeBonus = activeUpgradeBonuses.filter(b => b.prop === "AbilityCharges").reduce((sum, b) => sum + Number(b.bonus || 0), 0);
+                    const upgradeCooldownDelta = activeUpgradeBonuses.filter(b => b.prop === "AbilityCooldown").reduce((sum, b) => sum + Number(b.bonus || 0), 0);
+                    const upgradeDurationDelta = activeUpgradeBonuses.filter(b => b.prop === "AbilityDuration").reduce((sum, b) => sum + Number(b.bonus || 0), 0);
+                    const itemChargeBonus = build.reduce((sum, item) => sum + (item.mods?.abilityCharges || 0), 0);
+                    const effectiveCharges = ab.charges == null ? null : ab.charges + itemChargeBonus + upgradeChargeBonus;
+                    const itemCdr = build.reduce((sum, item) => sum + (item.mods?.cdr || 0), 0);
+                    const adjustedCooldown = ab.cooldown == null ? null : Math.max(0, (ab.cooldown + upgradeCooldownDelta) * (1 - Math.max(0, itemCdr) / 100));
                     const abilityDurationPct = build.reduce((sum, item) => sum + (item.mods?.abilityDuration || 0), 0);
-                    const adjustedDuration = ab.duration == null ? null : ab.duration * (1 + abilityDurationPct / 100);
+                    const adjustedDuration = ab.duration == null ? null : Math.max(0, ab.duration + upgradeDurationDelta) * (1 + abilityDurationPct / 100);
+                    // Combine each damage stat's base value with any unlocked-upgrade bonus:
+                    // flat bonuses add to the base, EAddToScale bonuses add to the spirit/weapon
+                    // scaling ratio, which is then multiplied by the hero's current totals.
+                    const effectiveDamageStats = (ab.damageStats || []).map(stat => {
+                      let upgradeFlatBonus = 0;
+                      let spiritScale = stat.spiritScale;
+                      let weaponScale = stat.weaponScale;
+                      activeUpgradeBonuses.forEach(b => {
+                        if (b.prop !== stat.key) return;
+                        if (b.scaleFilter === "ETechPower" && b.scaleType === "EAddToScale") spiritScale += b.bonus;
+                        else if (b.scaleFilter === "EWeaponPower" && b.scaleType === "EAddToScale") weaponScale += b.bonus;
+                        else upgradeFlatBonus += b.bonus;
+                      });
+                      const base = stat.base + upgradeFlatBonus;
+                      const spiritBonus = spiritScale * (totals.spirit || 0);
+                      const weaponBonus = weaponScale * (totals.dmg || 0);
+                      return { ...stat, base, upgradeFlatBonus, spiritScale, weaponScale, spiritBonus, weaponBonus, total: base + spiritBonus + weaponBonus };
+                    });
+                    // A spawned object's own lifetime (e.g. Call Bell's "Bell Lifetime"),
+                    // separate from the ability's own cast/active AbilityDuration.
+                    const effectiveLifetimeStats = (ab.lifetimeStats || []).map(stat => {
+                      const upgradeFlatBonus = activeUpgradeBonuses.filter(b => b.prop === stat.key).reduce((sum, b) => sum + Number(b.bonus || 0), 0);
+                      return { ...stat, upgradeFlatBonus, total: stat.value + upgradeFlatBonus };
+                    });
                     return <div className={"ability-card" + (abilityUnlocked ? "" : " ability-locked")} key={ab.key}>
                       {lockUnavailable && <span className="ability-lock-symbol" title={abilityIndex === 3 ? "Ultimate unlocks at level 7" : "Earn an ability unlock to choose this ability"}>🔒</span>}
                       <div>
@@ -1371,17 +1553,70 @@ export default function SoulLedger(){
                         </div>
                         <div className="ability-hover-info">
                           <b>{ab.name}</b>
-                          {ab.description && <div>{ab.description}</div>}
-                          {ab.cooldown != null && <div><strong>◷ Cooldown:</strong> {round1(ab.cooldown)}s</div>}
-                          {ab.duration != null && <div><strong>⌛ Duration:</strong> {round1(ab.duration)}s</div>}
-                          {ab.charges != null && <div><strong>◉ Charges:</strong> {round1(ab.charges)}{ab.chargeDelay != null ? ` · ${round1(ab.chargeDelay)}s recharge` : ""}</div>}
+                          <div>{ab.description || "No additional description available."}</div>
                         </div>
-                        {(ab.description || ab.cooldown != null || ab.duration != null || ab.charges != null) && (
+                        {(effectiveDamageStats.length > 0 || effectiveLifetimeStats.length > 0 || ab.cooldown != null || ab.duration != null || effectiveCharges != null) && (
                           <div className="ability-meta">
-                            {ab.description && <div>{ab.description}</div>}
-                            {ab.cooldown != null && <div><span className="ability-stat-icon">◷</span><b>Cooldown:</b> {round1(ab.cooldown)}s {adjustedCooldown !== ab.cooldown && <span className="ability-impact">→ {round1(adjustedCooldown)}s with current CDR</span>}</div>}
-                            {ab.duration != null && <div><span className="ability-stat-icon">⌛</span><b>Duration:</b> {round1(ab.duration)}s {adjustedDuration !== ab.duration && <span className="ability-impact">→ {round1(adjustedDuration)}s with item duration bonuses</span>}</div>}
-                            {ab.charges != null && <div><span className="ability-stat-icon">◉</span><b>Charges:</b> {round1(ab.charges)}{ab.chargeDelay != null && ` · ${round1(ab.chargeDelay)}s recharge`}</div>}
+                            {effectiveDamageStats.map(d => (
+                              <div className="ability-stat-line" key={d.key}>
+                                <span className="ability-stat-icon">✦</span><b>{d.label}:</b> {round1(d.total)}
+                                {(d.spiritScale > 0 || d.weaponScale > 0) && (
+                                  <span className="ability-impact">
+                                    {" "}({round1(d.base)}{d.spiritScale > 0 ? ` +${round1(d.spiritScale)}×Spirit` : ""}{d.weaponScale > 0 ? ` +${round1(d.weaponScale)}×WpnDmg` : ""})
+                                  </span>
+                                )}
+                                <CalcTooltip title={`${d.label} breakdown`} lines={[
+                                  { label: "Ability base", value: round1(d.base - d.upgradeFlatBonus) },
+                                  d.upgradeFlatBonus !== 0 && { label: "Upgrade bonus", value: (d.upgradeFlatBonus > 0 ? "+" : "") + round1(d.upgradeFlatBonus) },
+                                  d.spiritScale !== 0 && { label: `Spirit Power (${round1(d.spiritScale)}× of ${round1(totals.spirit || 0)})`, value: "+" + round1(d.spiritBonus) },
+                                  d.weaponScale !== 0 && { label: `Weapon Damage (${round1(d.weaponScale)}× of ${round1(totals.dmg || 0)})`, value: "+" + round1(d.weaponBonus) },
+                                  { label: "Total", value: round1(d.total) },
+                                ]} />
+                              </div>
+                            ))}
+                            {effectiveLifetimeStats.map(ls => (
+                              <div className="ability-stat-line" key={ls.key}>
+                                <span className="ability-stat-icon">⌛︎</span><b>{ls.label}:</b> {round1(ls.total)}s
+                                <CalcTooltip title={`${ls.label} breakdown`} lines={[
+                                  { label: "Ability base", value: round1(ls.value) + "s" },
+                                  ls.upgradeFlatBonus !== 0 && { label: "Upgrade bonus", value: (ls.upgradeFlatBonus > 0 ? "+" : "") + round1(ls.upgradeFlatBonus) + "s" },
+                                  { label: "Total", value: round1(ls.total) + "s" },
+                                ]} />
+                              </div>
+                            ))}
+                            {ab.cooldown != null && (
+                              <div className="ability-stat-line">
+                                <span className="ability-stat-icon">◷</span><b>Cooldown:</b> {round1(ab.cooldown)}s {adjustedCooldown !== ab.cooldown && <span className="ability-impact">→ {round1(adjustedCooldown)}s</span>}
+                                <CalcTooltip title="Cooldown breakdown" lines={[
+                                  { label: "Ability base", value: round1(ab.cooldown) + "s" },
+                                  upgradeCooldownDelta !== 0 && { label: "Upgrade bonus", value: (upgradeCooldownDelta > 0 ? "+" : "") + round1(upgradeCooldownDelta) + "s" },
+                                  itemCdr !== 0 && { label: "Cooldown reduction (items)", value: "-" + round1(itemCdr) + "%" },
+                                  { label: "Total", value: round1(adjustedCooldown) + "s" },
+                                ]} />
+                              </div>
+                            )}
+                            {ab.duration != null && (
+                              <div className="ability-stat-line">
+                                <span className="ability-stat-icon">⌛︎</span><b>Duration:</b> {round1(ab.duration)}s {adjustedDuration !== ab.duration && <span className="ability-impact">→ {round1(adjustedDuration)}s</span>}
+                                <CalcTooltip title="Duration breakdown" lines={[
+                                  { label: "Ability base", value: round1(ab.duration) + "s" },
+                                  upgradeDurationDelta !== 0 && { label: "Upgrade bonus", value: (upgradeDurationDelta > 0 ? "+" : "") + round1(upgradeDurationDelta) + "s" },
+                                  abilityDurationPct !== 0 && { label: "Duration bonus (items)", value: "+" + round1(abilityDurationPct) + "%" },
+                                  { label: "Total", value: round1(adjustedDuration) + "s" },
+                                ]} />
+                              </div>
+                            )}
+                            {effectiveCharges != null && (
+                              <div className="ability-stat-line">
+                                <span className="ability-stat-icon">◉</span><b>Charges:</b> {round1(effectiveCharges)}{ab.chargeDelay != null && ` · ${round1(ab.chargeDelay)}s recharge`}
+                                <CalcTooltip title="Charges breakdown" lines={[
+                                  { label: "Ability base", value: round1(ab.charges) },
+                                  itemChargeBonus !== 0 && { label: "Item bonus", value: (itemChargeBonus > 0 ? "+" : "") + round1(itemChargeBonus) },
+                                  upgradeChargeBonus !== 0 && { label: "Upgrade bonus", value: (upgradeChargeBonus > 0 ? "+" : "") + round1(upgradeChargeBonus) },
+                                  { label: "Total", value: round1(effectiveCharges) },
+                                ]} />
+                              </div>
+                            )}
                           </div>
                         )}
                         {!abilityUnlocked && (
@@ -1465,8 +1700,8 @@ export default function SoulLedger(){
                         {tierItems.map(it=>{
                           const inBuild = build.includes(it);
                           const statChips = (it.statDisplays && it.statDisplays.length > 0)
-                            ? it.statDisplays.map(s => (
-                                <span className="stat-chip pos" key={s.label}>{s.label}: {s.value}</span>
+                            ? it.statDisplays.map((s, idx) => (
+                                <span className="stat-chip pos" key={s.label + idx}>{s.label}: {s.value}</span>
                               ))
                             : Object.entries(it.mods||{}).filter(([k,v])=>v!==0).map(([k,v])=>{
                                 const def = STAT_DEFS.find(s=>s.k===k);
@@ -1475,6 +1710,8 @@ export default function SoulLedger(){
                                 const txt = (v>0?"+":"") + round1(v) + def.unit;
                                 return <span className={"stat-chip "+cls} key={k}>{def.label}: {txt}</span>;
                               });
+
+                          const ownedComponents = (it.upgradesFrom || []).filter(name => build.some(b => b.n === name));
 
                           return (
                             <div
@@ -1496,12 +1733,24 @@ export default function SoulLedger(){
                                   <b>{it.n}</b>
                                   <div>{it.effect}</div>
                                   {it.cond && <div><strong>Condition:</strong> {it.cond}</div>}
+                                  {it.upgradesFrom?.length > 0 && (
+                                    <div><strong>Upgrades from:</strong> {it.upgradesFrom.join(', ')}{ownedComponents.length > 0 ? ' — owned, buying this absorbs it' : ''}</div>
+                                  )}
+                                  {it.upgradesInto?.length > 0 && (
+                                    <div><strong>Upgrades into:</strong> {it.upgradesInto.join(', ')}</div>
+                                  )}
                                 </div>
                               </div>
                               <div className="item-tags">
                                 {(it.tags||[]).map(t=><span className="tag" key={t}>{t}</span>)}
                                 {it.active && <span className="tag active-tag">ACTIVE</span>}
                                 {it.cond && <span className="tag cond-tag">CONDITIONAL</span>}
+                                {it.upgradesFrom?.length > 0 && (
+                                  <span className={"tag upgrade-tag" + (ownedComponents.length > 0 ? " ready" : "")}>
+                                    {ownedComponents.length > 0 ? `⬆ UPGRADES ${ownedComponents.join(', ')}` : `⬆ FROM ${it.upgradesFrom.join(', ')}`}
+                                  </span>
+                                )}
+                                {it.upgradesInto?.length > 0 && <span className="tag upgrade-tag">⬆ INTO {it.upgradesInto.join(', ')}</span>}
                               </div>
                             </div>
                           );
