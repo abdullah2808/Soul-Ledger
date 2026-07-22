@@ -126,6 +126,8 @@ header.top{
 }
 .hero-detail-meta .name{ font-family:'Rajdhani',sans-serif; font-size:20px; font-weight:700; color:var(--text); line-height:1.1; }
 .hero-detail-meta .role{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--text-dim); margin-top:3px; }
+.hero-tags{ display:flex; flex-wrap:wrap; gap:4px; margin-top:5px; }
+.hero-tag{ padding:2px 5px; border:1px solid var(--spirit-dim); border-radius:2px; color:var(--spirit); font:9.5px 'IBM Plex Mono',monospace; text-transform:uppercase; }
 
 /* ===== Slot Capacity & Walker Kills Panel ===== */
 .slots-card{
@@ -202,8 +204,10 @@ header.top{
 .souls-spent .amt{ font-size:20px; font-weight:600; color:var(--souls); }
 .souls-spent .lbl{ font-size:10.5px; color:var(--text-faint); letter-spacing:0.08em; text-transform:uppercase; }
 
-.build-list{ margin-top:14px; display:flex; flex-direction:column; gap:5px; max-height:220px; overflow-y:auto; }
+.build-list{ margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:5px; max-height:300px; overflow-y:auto; }
+.souls-spent + .build-list{ display:none; }
 .build-empty{ color:var(--text-faint); font-size:12px; font-style:italic; padding:10px 0; }
+.build-list .build-empty{ grid-column:1 / -1; }
 .build-item{
   display:flex; align-items:center; gap:8px; padding:6px 8px; background:var(--bg-panel-2);
   border-radius:var(--radius); border-left:2px solid var(--line); font-size:12px;
@@ -248,7 +252,7 @@ header.top{
 
 .item-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:8px; }
 .item-card{
-  background:var(--bg-panel-2); border:1px solid var(--line); border-radius:var(--radius);
+  position:relative; background:var(--bg-panel-2); border:1px solid var(--line); border-radius:var(--radius);
   padding:10px 11px; cursor:pointer; transition:border-color .12s, transform .06s;
   border-left-width:3px; display:flex; flex-direction:column; justify-content:space-between;
 }
@@ -269,6 +273,8 @@ header.top{
 .item-name{ font-family:'Rajdhani',sans-serif; font-weight:600; font-size:14.5px; line-height:1.2; color:var(--text); }
 .item-cost{ font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--souls); white-space:nowrap; }
 .item-effect{ font-size:11.5px; color:var(--text-dim); line-height:1.4; margin-bottom:6px; }
+.item-hover-info{ display:none; position:absolute; z-index:25; left:8px; right:8px; top:calc(100% - 2px); padding:9px 10px; background:#0d0f12; border:1px solid var(--souls); border-radius:var(--radius); box-shadow:0 8px 20px #000b; color:var(--text-dim); font-size:11px; line-height:1.45; pointer-events:none; }
+.item-card:hover .item-hover-info{ display:block; }
 .item-tags{ display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
 .tag{
   font-family:'IBM Plex Mono',monospace; font-size:9.5px; padding:2px 6px; border-radius:2px;
@@ -281,8 +287,16 @@ header.top{
 .abilities-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px; }
 .ability-card{
   background:var(--bg-panel-2); border:1px solid var(--line); border-radius:var(--radius);
-  padding:10px 12px; display:flex; flex-direction:column; justify-content:space-between;
+  position:relative; padding:10px 12px; display:flex; flex-direction:column; justify-content:space-between;
 }
+.ability-card.ability-locked{ border-color:#3a3030; }
+.ability-lock-symbol{ position:absolute; top:8px; right:9px; color:var(--danger); font-size:18px; opacity:.9; }
+.ability-meta{ margin:5px 0 7px; color:var(--text-dim); font:10.5px/1.45 'IBM Plex Mono',monospace; }
+.ability-meta b{ color:var(--text); }
+.ability-impact{ color:var(--vitality); }
+.ability-stat-icon{ display:inline-block; width:16px; color:var(--souls); font-size:13px; }
+.ability-hover-info{ display:none; position:absolute; z-index:25; left:8px; right:8px; top:52px; padding:9px 10px; background:#0d0f12; border:1px solid var(--spirit); border-radius:var(--radius); box-shadow:0 8px 20px #000b; color:var(--text-dim); font-size:11px; line-height:1.45; pointer-events:none; }
+.ability-card:hover .ability-hover-info{ display:block; }
 .ability-head{ display:flex; align-items:center; gap:8px; margin-bottom:6px; }
 .ability-img{ width:32px; height:32px; object-fit:contain; background:#00000060; border-radius:3px; flex-shrink:0; }
 .ability-title-box{ flex:1; }
@@ -299,6 +313,9 @@ header.top{
 .ability-tier-btn.unlocked{ border-color:var(--spirit); background:#1c1730; color:var(--text); }
 .ability-tier-btn .t-badge{ font-weight:600; color:var(--spirit); }
 .ability-tier-btn > span:last-child{ margin-left:10px; white-space:nowrap; }
+.collapse-btn{ background:transparent; border:1px solid var(--line); color:var(--text-dim); border-radius:2px; padding:1px 7px; cursor:pointer; font:12px 'IBM Plex Mono',monospace; }
+.collapse-btn:hover{ border-color:var(--spirit); color:var(--text); }
+.shop-toggle{ display:flex; justify-content:flex-end; margin:-5px 0 3px; }
 
 /* ===== Conditional effects panel ===== */
 .cond-panel{ margin-top:20px; }
@@ -370,7 +387,7 @@ const FALLBACK_HEROES = [
  {n:"Dynamo",role:"Teamplay · Initiator",h:880,r:1.75,d:12.6,m:6.7,s:3,levelUp:{hp:39,dmg:0.088,spirit:1.1}},
  {n:"Grey Talon",role:"Precision · Hunter",h:780,r:1.5,d:23.5,m:6.3,s:4,levelUp:{hp:39,dmg:0.088,spirit:1.1}},
  {n:"Haze",role:"Assassin · Stealthy",h:730,r:2,d:5.3,m:8.2,s:3,levelUp:{hp:39,dmg:0.088,spirit:1.1}},
- {n:"Infernus",role:"Arsonist · Explosive",h:830,r:2,d:5.5,m:6.7,s:3,levelUp:{hp:39,dmg:0.088,spirit:1.1}},
+ {n:"Infernus",role:"Arsonist · Explosive",clip:27,bulletVelocity:660,h:830,r:2,d:5.5,m:6.7,s:3,levelUp:{hp:39,dmg:0.088,spirit:1.1}},
  {n:"Ivy",role:"Team-up · Disruptor",h:755,r:2,d:4.5,m:7.2,s:4,levelUp:{hp:39,dmg:0.088,spirit:1.1}},
  {n:"Kelvin",role:"Protector · Explorer",h:880,r:1,d:18.6,m:6.7,s:3,levelUp:{hp:39,dmg:0.088,spirit:1.1}},
  {n:"Lady Geist",role:"Lifesteal · Self Damage",h:880,r:1,d:20.7,m:6.3,s:3,levelUp:{hp:39,dmg:0.088,spirit:1.1}},
@@ -413,6 +430,7 @@ const STAT_DEFS = [
  {k:"spirit", label:"Spirit Power", unit:""},
  {k:"fireRate", label:"Fire Rate", unit:"%"},
  {k:"clip", label:"Clip Size", unit:""},
+ {k:"bulletVelocity", label:"Bullet Velocity", unit:" m/s"},
  {k:"bulletArmor", label:"Bullet Resist", unit:"%"},
  {k:"spiritArmor", label:"Spirit Resist", unit:"%"},
  {k:"cdr", label:"Cooldown Reduction", unit:"%"},
@@ -465,6 +483,10 @@ function investmentBonus(cat, spend){
 }
 
 function normalizeName(s){ return (s||"").toLowerCase().replace(/[^a-z0-9]/g,""); }
+function getHeroTags(hero){
+  if (hero?.tags?.length) return hero.tags;
+  return (hero?.role || "Versatile fighter").split(/[·,|]/).map(tag => tag.trim()).filter(Boolean);
+}
 function buildFallbackIndex(list){
   const map = new Map();
   list.forEach(x=>map.set(normalizeName(x.n), x));
@@ -484,6 +506,60 @@ function formatBonusText(propName, bonusVal) {
   if (propName.includes("Range") || propName.includes("Radius")) return `${sign}${num}m ${prettyName}`;
   if (propName.includes("Percent") || propName.includes("Pct")) return `${sign}${num}% ${prettyName}`;
   return `${sign}${num} ${prettyName}`;
+}
+
+function cleanApiText(value){
+  if (typeof value !== "string") return "";
+  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function findApiNumber(source, patterns){
+  if (!source || typeof source !== "object") return null;
+  for (const [key, value] of Object.entries(source)) {
+    const keyText = key.toLowerCase().replace(/[^a-z]/g, "");
+    if (patterns.some(pattern => keyText.includes(pattern))) {
+      const numericValue = typeof value === "number" ? value : Number(value?.value ?? value);
+      if (!isNaN(numericValue) && numericValue !== 0) return numericValue;
+    }
+    if (value && typeof value === "object") {
+      const nested = findApiNumber(value, patterns);
+      if (nested !== null) return nested;
+    }
+  }
+  return null;
+}
+
+function findApiText(source, patterns){
+  if (!source || typeof source !== "object") return "";
+  for (const [key, value] of Object.entries(source)) {
+    const keyText = key.toLowerCase().replace(/[^a-z]/g, "");
+    if (patterns.some(pattern => keyText.includes(pattern)) && typeof value === "string") {
+      const text = cleanApiText(value);
+      if (text) return text;
+    }
+    if (value && typeof value === "object") {
+      const nested = findApiText(value, patterns);
+      if (nested) return nested;
+    }
+  }
+  return "";
+}
+
+function normalizeBulletVelocity(value){
+  const numericValue = Number(value) || 0;
+  // KV3 weapon data uses Source units for some weapons; the UI displays the
+  // player-facing metres-per-second value.
+  return numericValue > 1000 ? numericValue / 24.2424 : numericValue;
+}
+
+function extractAbilityMeta(abilityObj){
+  return {
+    description: cleanApiText(abilityObj?.description || abilityObj?.ability_description || abilityObj?.desc || abilityObj?.effect) || findApiText(abilityObj, ["description", "abilitydescription", "lore", "effect", "tooltip", "details"]),
+    cooldown: findApiNumber(abilityObj, ["cooldown", "cooldowntime"]),
+    duration: findApiNumber(abilityObj, ["duration", "castduration", "channelduration"]),
+    charges: findApiNumber(abilityObj, ["maxcharges", "charges", "abilitycharges"]),
+    chargeDelay: findApiNumber(abilityObj, ["chargedelay", "timebetweencharges"]),
+  };
 }
 
 async function fetchDeadlockData(signal){
@@ -530,7 +606,14 @@ async function fetchDeadlockData(signal){
         const move = h.starting_stats?.max_move_speed?.value ?? match?.m ?? 7;
         const stamina = h.starting_stats?.stamina?.value ?? match?.s ?? 3;
         const bulletDmg = wInfo.bullet_damage ?? wInfo.damage_per_shot ?? match?.d ?? 10;
-        const role = h.description?.role || h.description?.playstyle || match?.role || "Hero";
+        const clipSize = findApiNumber(wInfo, ["clipsize", "clipcapacity"]) || findApiNumber(h.starting_stats, ["clipsize", "clipcapacity"]) || match?.clip || 0;
+        const bulletVelocity = normalizeBulletVelocity(findApiNumber(wInfo, ["bulletvelocity", "bulletspeed", "projectilespeed"]) || findApiNumber(h.starting_stats, ["bulletvelocity", "bulletspeed"]) || match?.bulletVelocity || 0);
+        const roleCandidate = h.description?.role || h.description?.playstyle || match?.role || "";
+        const role = !roleCandidate || roleCandidate.trim().toLowerCase() === "hero"
+          ? (match?.role || "Versatile fighter")
+          : roleCandidate;
+        const tags = (Array.isArray(h.tags) ? h.tags : (Array.isArray(h.description?.tags) ? h.description.tags : []))
+          .map(tag => typeof tag === "string" ? tag : tag?.name).filter(Boolean);
 
         // Map 4 Signature Abilities
         const signatureKeys = ['signature1', 'signature2', 'signature3', 'signature4'];
@@ -538,6 +621,10 @@ async function fetchDeadlockData(signal){
           const className = h.items?.[key];
           const abilityObj = className ? itemByClassName.get(className) : null;
           const name = abilityObj?.name || `Ability ${idx + 1}`;
+          const meta = extractAbilityMeta(abilityObj);
+          const fallbackDescription = name === "Call Bell"
+            ? "Throw out a call bell that deals spirit damage on impact. After a short delay it explodes, dealing additional spirit damage and causing affected enemies to suffer reduced weapon accuracy and movement slow. Can be shot to detonate early."
+            : "";
 
           const upgrades = (abilityObj?.upgrades || []).map((u, uIdx) => {
             const bonuses = (u.property_upgrades || []).map(pu => ({
@@ -557,6 +644,11 @@ async function fetchDeadlockData(signal){
             slot: `Ability ${idx + 1}`,
             name,
             image: abilityObj?.image || abilityObj?.shop_image,
+            description: meta.description || fallbackDescription,
+            cooldown: meta.cooldown ?? (name === "Call Bell" ? 18 : null),
+            duration: meta.duration ?? (name === "Call Bell" ? 4 : null),
+            charges: meta.charges ?? (name === "Call Bell" ? 1 : null),
+            chargeDelay: meta.chargeDelay,
             upgrades
           };
         });
@@ -572,9 +664,13 @@ async function fetchDeadlockData(signal){
           id: h.id,
           n: h.name,
           role: role.length > 40 ? role.slice(0, 37) + '...' : role,
+          tags: tags.length ? tags.slice(0, 4) : role.split(/[·,|]/).map(tag => tag.trim()).filter(Boolean).slice(0, 3),
+          description: cleanApiText(h.description?.description || h.description?.lore || h.description?.playstyle),
           h: Number(maxHp) || 700,
           r: Number(regen) || 1.5,
           d: Number(bulletDmg) || 10,
+          clip: Number(clipSize) || 0,
+          bulletVelocity: Number(bulletVelocity) || 0,
           m: Number(move) || 7,
           s: Number(stamina) || 3,
           image: h.images?.card_image || h.images?.icon_hero_card || h.images?.small_image,
@@ -597,6 +693,12 @@ async function fetchDeadlockData(signal){
       const cost = i.cost || TIER_COST[tier] || 800;
 
       const mods = Object.assign({}, match?.mods || {});
+      if (match?.n === "Extended Magazine" || match?.n === "Active Reload") {
+        if (mods.clip !== undefined) {
+          mods.clipPct = mods.clip;
+          delete mods.clip;
+        }
+      }
       const statDisplays = [];
 
       if (i.properties) {
@@ -612,10 +714,12 @@ async function fetchDeadlockData(signal){
           else if (['BaseAttackDamagePercent', 'WeaponPower'].includes(k)) mods.dmg = val;
           else if (['TechPower', 'SpiritPower', 'SpiritPowerInnate'].includes(k)) mods.spirit = val;
           else if (['BonusFireRate', 'FireRate'].includes(k)) mods.fireRate = val;
-          else if (['BonusClipSizePercent', 'BonusClipSize', 'ClipSize'].includes(k)) mods.clip = val;
+          else if (['BonusClipSizePercent'].includes(k)) mods.clipPct = val;
+          else if (['BonusClipSize', 'ClipSize'].includes(k)) mods.clip = val;
           else if (['BulletArmorDamageReduction', 'BulletResist', 'BulletArmor'].includes(k)) mods.bulletArmor = val;
           else if (['TechArmorDamageReduction', 'SpiritResist', 'TechArmor'].includes(k)) mods.spiritArmor = val;
           else if (['AbilityCooldownReduction', 'TechCooldown'].includes(k)) mods.cdr = Math.abs(val);
+          else if (['ImbuedBonusDuration', 'BonusAbilityDurationPercent', 'AbilityDuration'].includes(k)) mods.abilityDuration = val;
 
           const sign = val > 0 ? '+' : '';
           const postfix = p.postfix || '';
@@ -623,12 +727,10 @@ async function fetchDeadlockData(signal){
         });
       }
 
-      let description = match?.effect || '';
+      let description = cleanApiText(i.description) || match?.effect || '';
       if (!description) {
         if (statDisplays.length > 0) {
           description = statDisplays.map(s => `${s.label}: ${s.value}`).join(' · ');
-        } else if (i.description && typeof i.description === 'string') {
-          description = i.description.replace(/<[^>]+>/g, '').trim();
         } else {
           description = "Deadlock shop upgrade.";
         }
@@ -667,7 +769,8 @@ function baseValue(hero, k){
     case "dmg": return hero.d;
     case "spirit": return 0;
     case "fireRate": return 100;
-    case "clip": return 0;
+    case "clip": return hero.clip || 0;
+    case "bulletVelocity": return hero.bulletVelocity || 0;
     case "bulletArmor": return 0;
     case "spiritArmor": return 0;
     case "cdr": return 0;
@@ -703,7 +806,7 @@ function computeInvestments(build){
 }
 
 function computeAbilityStatDeltas(unlockedAbilityTiers, unlockedAbilitySlots, selectedHero) {
-  const deltas = { hp: 0, regen: 0, dmg: 0, spirit: 0, fireRate: 0, clip: 0, bulletArmor: 0, spiritArmor: 0, cdr: 0, move: 0, sprint: 0, stamina: 0 };
+  const deltas = { hp: 0, regen: 0, dmg: 0, spirit: 0, fireRate: 0, clip: 0, clipPct: 0, bulletArmor: 0, spiritArmor: 0, cdr: 0, move: 0, sprint: 0, stamina: 0 };
   if (!selectedHero || !selectedHero.abilities) return deltas;
 
   selectedHero.abilities.forEach(ab => {
@@ -721,7 +824,8 @@ function computeAbilityStatDeltas(unlockedAbilityTiers, unlockedAbilitySlots, se
           else if (['BaseAttackDamagePercent', 'WeaponPower', 'BuffBaseWeaponPct', 'BonusDamagePercent'].includes(p)) deltas.dmg += val;
           else if (['TechPower', 'SpiritPower', 'BonusSpirit', 'BonusSpiritPower'].includes(p)) deltas.spirit += val;
           else if (['BonusFireRate', 'FireRate', 'AttackSpeedMult'].includes(p)) deltas.fireRate += val;
-          else if (['BonusClipSizePercent', 'BonusClipSize'].includes(p)) deltas.clip += val;
+          else if (['BonusClipSizePercent'].includes(p)) deltas.clipPct += val;
+          else if (['BonusClipSize'].includes(p)) deltas.clip += val;
           else if (['BulletArmor', 'BulletResist', 'BulletArmorReduction'].includes(p)) deltas.bulletArmor += val;
           else if (['SpiritArmor', 'SpiritResist', 'TechResist', 'TechArmor'].includes(p)) deltas.spiritArmor += val;
           else if (['BonusMoveSpeed', 'MoveSpeedMax', 'BonusMoveSpeedPercent'].includes(p)) deltas.move += val;
@@ -753,6 +857,7 @@ function computeFinalDeltas(hero, build, unlockedBoons, unlockedAbilityTiers, un
   final.dmg = raw.dmg + (baseDmg * (boonDmgPct / 100)) + abDeltas.dmg + weaponBonusDmg;
   final.hp = raw.hp + boonHpBonus + abDeltas.hp + ((raw.hp + boonHpBonus + abDeltas.hp) * (inv.vitality.value/100));
   final.spirit = raw.spirit + boonSpiritBonus + abDeltas.spirit + inv.spirit.value;
+  final.clip = raw.clip + (baseValue(hero, 'clip') * (raw.clipPct / 100)) + abDeltas.clip + (baseValue(hero, 'clip') * (abDeltas.clipPct / 100));
   final.cdr = raw.cdr + abDeltas.cdr;
   final.move = raw.move + abDeltas.move;
   final.sprint = raw.sprint + abDeltas.sprint;
@@ -777,11 +882,16 @@ export default function SoulLedger(){
   const [tierFilter, setTierFilter] = useState(0);
   const [heroQuery, setHeroQuery] = useState("");
   const [itemQuery, setItemQuery] = useState("");
+  const [collapsedSections, setCollapsedSections] = useState({});
 
   const [walkersDestroyed, setWalkersDestroyed] = useState(0);
   const [unlockedAbilitySlots, setUnlockedAbilitySlots] = useState({});
   const [unlockedAbilityTiers, setUnlockedAbilityTiers] = useState({});
   const [slotLimitWarning, setSlotLimitWarning] = useState("");
+
+  function toggleSection(section){
+    setCollapsedSections(prev => ({ ...prev, [section]: !prev[section] }));
+  }
 
   function loadData(){
     const controller = new AbortController();
@@ -795,13 +905,19 @@ export default function SoulLedger(){
       setDataSource(res.source);
       setDataError(res.error || null);
       setSelectedHero(prev => loadedHeroes.find(h=>h.n===prev?.n) || loadedHeroes[0]);
+      setBuild(prev => prev.map(oldItem => loadedItems.find(item => item.id === oldItem.id || item.n === oldItem.n)).filter(Boolean));
       setIsRefreshing(false);
     });
     return ()=>controller.abort();
   }
 
   useEffect(()=>{
-    return loadData();
+    const cleanup = loadData();
+    const refreshTimer = setInterval(loadData, 30 * 60 * 1000);
+    return ()=>{
+      cleanup?.();
+      clearInterval(refreshTimer);
+    };
   },[]);
 
   // Item capacity: 9 base slots + up to 3 extra from Walker kills = 12 max
@@ -898,6 +1014,14 @@ export default function SoulLedger(){
   const displayLevel = Math.max(0, level);
   const unlockedBoons = level;
 
+  // The ultimate is granted automatically as soon as level 7 is reached.
+  useEffect(() => {
+    const ultimate = selectedHero?.abilities?.[3];
+    if (level >= 7 && ultimate && !unlockedAbilitySlots[ultimate.key]) {
+      setUnlockedAbilitySlots(prev => ({ ...prev, [ultimate.key]: true }));
+    }
+  }, [level, selectedHero, unlockedAbilitySlots]);
+
   const spentAP = useMemo(() => selectedHero?.abilities?.reduce((total, ab) => (
     total + (ab.upgrades || []).reduce((abilityTotal, u) => (
       abilityTotal + (unlockedAbilityTiers[`${ab.key}_T${u.tier}`] ? (u.apCost || 1) : 0)
@@ -920,7 +1044,11 @@ export default function SoulLedger(){
     const pool = items.filter(it=>{
       if(catFilter!=="all" && it.cat!==catFilter) return false;
       if(tierFilter!==0 && it.tier!==tierFilter) return false;
-      if(q && !it.n.toLowerCase().includes(q)) return false;
+      const searchableText = [
+        it.n, it.effect, it.cond, ...(it.tags || []),
+        ...(it.statDisplays || []).flatMap(stat => [stat.label, stat.value])
+      ].filter(Boolean).join(" ").toLowerCase();
+      if(q && !searchableText.includes(q)) return false;
       return true;
     });
     const byTier = {1:[],2:[],3:[],4:[]};
@@ -1028,7 +1156,6 @@ export default function SoulLedger(){
                 {h.icon && <img src={h.icon} alt={h.n} className="hero-img-sm" onError={e=>e.target.style.display='none'} />}
                 <div className="hero-info">
                   <span className="n">{h.n}</span>
-                  <span className="r">{h.role}</span>
                 </div>
               </button>
             ))}
@@ -1050,7 +1177,7 @@ export default function SoulLedger(){
                   ) : null}
                   <div className="hero-detail-meta">
                     <div className="name">{selectedHero.n}</div>
-                    <div className="role">{selectedHero.role}</div>
+                    <div className="hero-tags">{getHeroTags(selectedHero).map(tag => <span className="hero-tag" key={tag}>{tag}</span>)}</div>
                   </div>
                 </div>
               )}
@@ -1083,6 +1210,23 @@ export default function SoulLedger(){
                   </div>
                 </div>
                 {slotLimitWarning && <div className="slot-warn">{slotLimitWarning}</div>}
+                <div className="build-list">
+                  {build.length===0 && <div className="build-empty">No items purchased yet — click items in the shop to add them.</div>}
+                  {build.map((it,idx)=>(
+                    <div className="build-item" key={it.n+idx}>
+                      {it.image ? <img src={it.image} alt={it.n} className="build-item-icon" onError={e=>e.target.style.display='none'} /> : null}
+                      <span className="nm">{it.n}</span>
+                      <span className="cost">{TIER_COST[it.tier]}</span>
+                      <button className="rm" title="Remove" onClick={()=>removeAt(idx)}>×</button>
+                    </div>
+                  ))}
+                  {Array.from({ length: maxItems - build.length }, (_, i) => (
+                    <div className="locked-slot" key={"empty-"+i}><span className="lock-icon">○</span><span>Empty Slot {build.length + i + 1}</span></div>
+                  ))}
+                  {Array.from({ length: 3 - Math.min(3, walkersDestroyed) }, (_, i) => (
+                    <div className="locked-slot unlockable" key={"locked-"+i}><span className="lock-icon">🔒</span><span>Locked — Destroy Walker {Math.min(3, walkersDestroyed) + i + 1} to unlock</span></div>
+                  ))}
+                </div>
               </div>
 
               {/* ===== Soul Boons Card (Auto-Synced to Build Souls) ===== */}
@@ -1205,13 +1349,18 @@ export default function SoulLedger(){
               <div className="panel">
                 <div className="panel-title">
                   <span>03 — Hero Abilities &amp; Skill Upgrades (Affects Hero Stats)</span>
-                  <span>{selectedHero.n}</span>
+                  <span><button className="collapse-btn" onClick={() => toggleSection("abilities")} aria-label="Toggle abilities panel">{collapsedSections.abilities ? "+" : "−"}</button> {selectedHero.n}</span>
                 </div>
-                <div className="abilities-grid">
+                {!collapsedSections.abilities && <div className="abilities-grid">
                   {selectedHero.abilities.map((ab, abilityIndex) => {
                     const abilityUnlocked = !!unlockedAbilitySlots[ab.key];
                     const canUnlock = !abilityUnlocked && abilityUnlocks > Object.values(unlockedAbilitySlots).filter(Boolean).length && (abilityIndex < 3 || level >= 7);
+                    const lockUnavailable = !abilityUnlocked && !canUnlock;
+                    const adjustedCooldown = ab.cooldown == null ? null : Math.max(0, ab.cooldown * (1 - Math.max(0, totals.cdr || 0) / 100));
+                    const abilityDurationPct = build.reduce((sum, item) => sum + (item.mods?.abilityDuration || 0), 0);
+                    const adjustedDuration = ab.duration == null ? null : ab.duration * (1 + abilityDurationPct / 100);
                     return <div className={"ability-card" + (abilityUnlocked ? "" : " ability-locked")} key={ab.key}>
+                      {lockUnavailable && <span className="ability-lock-symbol" title={abilityIndex === 3 ? "Ultimate unlocks at level 7" : "Earn an ability unlock to choose this ability"}>🔒</span>}
                       <div>
                         <div className="ability-head">
                           {ab.image && <img src={ab.image} alt={ab.name} className="ability-img" onError={e=>e.target.style.display='none'} />}
@@ -1220,6 +1369,21 @@ export default function SoulLedger(){
                             <div className="ability-slot">{ab.slot} · {abilityUnlocked ? "UNLOCKED" : (abilityIndex === 3 ? "Requires level 7" : "Choose to unlock")}</div>
                           </div>
                         </div>
+                        <div className="ability-hover-info">
+                          <b>{ab.name}</b>
+                          {ab.description && <div>{ab.description}</div>}
+                          {ab.cooldown != null && <div><strong>◷ Cooldown:</strong> {round1(ab.cooldown)}s</div>}
+                          {ab.duration != null && <div><strong>⌛ Duration:</strong> {round1(ab.duration)}s</div>}
+                          {ab.charges != null && <div><strong>◉ Charges:</strong> {round1(ab.charges)}{ab.chargeDelay != null ? ` · ${round1(ab.chargeDelay)}s recharge` : ""}</div>}
+                        </div>
+                        {(ab.description || ab.cooldown != null || ab.duration != null || ab.charges != null) && (
+                          <div className="ability-meta">
+                            {ab.description && <div>{ab.description}</div>}
+                            {ab.cooldown != null && <div><span className="ability-stat-icon">◷</span><b>Cooldown:</b> {round1(ab.cooldown)}s {adjustedCooldown !== ab.cooldown && <span className="ability-impact">→ {round1(adjustedCooldown)}s with current CDR</span>}</div>}
+                            {ab.duration != null && <div><span className="ability-stat-icon">⌛</span><b>Duration:</b> {round1(ab.duration)}s {adjustedDuration !== ab.duration && <span className="ability-impact">→ {round1(adjustedDuration)}s with item duration bonuses</span>}</div>}
+                            {ab.charges != null && <div><span className="ability-stat-icon">◉</span><b>Charges:</b> {round1(ab.charges)}{ab.chargeDelay != null && ` · ${round1(ab.chargeDelay)}s recharge`}</div>}
+                          </div>
+                        )}
                         {!abilityUnlocked && (
                           <button className="ability-tier-btn" disabled={!canUnlock} onClick={() => toggleAbilityUnlock(abilityIndex)}>
                             <span>Unlock this ability</span>
@@ -1255,13 +1419,15 @@ export default function SoulLedger(){
                       </div>
                     </div>
                   })}
-                </div>
+                </div>}
               </div>
             )}
 
             {/* ===== Shop Panel ===== */}
             <div className="panel">
+              <div className="shop-toggle"><button className="collapse-btn" onClick={() => toggleSection("shop")} aria-label="Toggle shop panel">{collapsedSections.shop ? "+" : "−"}</button></div>
               <div className="panel-title">04 — Shop ({items.length} Main Gamemode Items)</div>
+              {!collapsedSections.shop && <>
               <div className="shop-controls">
                 {["all","weapon","vitality","spirit"].map(c=>(
                   <button
@@ -1326,7 +1492,11 @@ export default function SoulLedger(){
                                   <span className="item-cost">{TIER_COST[it.tier]}</span>
                                 </div>
                                 {statChips.length>0 && <div className="item-stats">{statChips}</div>}
-                                <div className="item-effect">{it.effect}</div>
+                                <div className="item-hover-info">
+                                  <b>{it.n}</b>
+                                  <div>{it.effect}</div>
+                                  {it.cond && <div><strong>Condition:</strong> {it.cond}</div>}
+                                </div>
                               </div>
                               <div className="item-tags">
                                 {(it.tags||[]).map(t=><span className="tag" key={t}>{t}</span>)}
@@ -1344,6 +1514,7 @@ export default function SoulLedger(){
                   <div className="build-empty">No items match your search or filters.</div>
                 )}
               </div>
+              </>}
             </div>
 
             {/* ===== Active & Conditional Effects Panel ===== */}
