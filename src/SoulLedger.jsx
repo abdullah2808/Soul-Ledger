@@ -323,9 +323,9 @@ header.top{
 .invest-fill.spirit{ background:linear-gradient(90deg,var(--spirit-dim),var(--spirit)); }
 .invest-ticks{ position:absolute; inset:0; }
 .invest-tick{
-  position:absolute; top:0; bottom:0; width:1px; background:#00000060;
+  position:absolute; top:0; bottom:0; width:1px; background:#ffffff28;
 }
-.invest-tick.hit{ background:#ffffff40; }
+.invest-tick.hit{ background:#ffffffb0; }
 .invest-tick.major{ background:var(--souls); width:2px; }
 .invest-bonus-txt{ font-size:11px; color:var(--text-faint); margin-top:4px; font-family:'IBM Plex Mono',monospace; }
 .invest-bonus-txt b{ color:var(--souls); font-weight:600; }
@@ -411,16 +411,36 @@ const STAT_DEFS = [
  {k:"stamina", label:"Stamina Charges", unit:""},
 ];
 
-const INVEST_BREAKPOINTS = [800, 1600, 2400, 3200, 4800, 9600, 14400];
+const INVEST_BREAKPOINTS = [800, 1600, 2400, 3200, 4800, 6400, 8000, 11200, 16000, 22400, 28800];
 const INVEST_MAJOR_BREAKPOINT = 4800;
-const INVEST_CAP = 14400;
+const INVEST_CAP = 28800;
 const INVEST_VALUES = {
-  weapon:   [6, 11, 16, 20, 49, 62, 74],
-  vitality: [5, 9, 13, 17, 34, 44, 53],
-  spirit:   [5, 10, 15, 19, 45, 58, 70],
+  weapon:   [9, 12, 15, 18, 46, 54, 62, 74, 86, 100, 115],
+  vitality: [9, 12, 15, 20, 38, 42, 46, 50, 54, 64, 70],
+  spirit:   [7, 11, 15, 19, 38, 45, 52, 59, 66, 75, 100],
 };
 const INVEST_UNIT = { weapon:"%", vitality:"%", spirit:"" };
 const INVEST_LABEL = { weapon:"Weapon Damage", vitality:"Bonus Health", spirit:"Spirit Power" };
+
+// Hero progression is shared by every hero. These are the soul thresholds for
+// levels 0 through 35; levels 0, 2, 4, and 7 award an ability unlock, while
+// every other level awards an ability point (capped at 32).
+const LEVEL_SOUL_THRESHOLDS = [600, 800, 1100, 1500, 2000, 2600, 3200, 3800, 4500, 5200, 5900, 6600, 7400, 8200, 9000, 9800, 10700, 11600, 12500, 13400, 14400, 15500, 16700, 18000, 19500, 21200, 23100, 25200, 27500, 30000, 32700, 35600, 38700, 42000, 45500, 49200];
+const MAX_LEVEL = LEVEL_SOUL_THRESHOLDS.length - 1;
+const MAX_ABILITY_POINTS = 32;
+const ABILITY_UNLOCK_LEVELS = [0, 2, 4, 7];
+
+function getHeroProgression(souls){
+  const level = Math.max(0, LEVEL_SOUL_THRESHOLDS.reduce((currentLevel, threshold, index) => (
+    Math.max(currentLevel, souls >= threshold ? index : -1)
+  ), -1));
+  const abilityUnlocks = ABILITY_UNLOCK_LEVELS.filter(unlockLevel => unlockLevel <= level).length;
+  const abilityPoints = Math.min(
+    MAX_ABILITY_POINTS,
+    Math.max(0, level - ABILITY_UNLOCK_LEVELS.filter(unlockLevel => unlockLevel > 0 && unlockLevel <= level).length)
+  );
+  return { level, abilityUnlocks, abilityPoints };
+}
 
 function categorySpend(build, cat){
   return build.filter(it=>it.cat===cat).reduce((a,b)=>a+TIER_COST[b.tier],0);
@@ -672,11 +692,12 @@ function computeInvestments(build){
   };
 }
 
-function computeAbilityStatDeltas(unlockedAbilityTiers, selectedHero) {
+function computeAbilityStatDeltas(unlockedAbilityTiers, unlockedAbilitySlots, selectedHero) {
   const deltas = { hp: 0, regen: 0, dmg: 0, spirit: 0, fireRate: 0, clip: 0, bulletArmor: 0, spiritArmor: 0, cdr: 0, move: 0, sprint: 0, stamina: 0 };
   if (!selectedHero || !selectedHero.abilities) return deltas;
 
   selectedHero.abilities.forEach(ab => {
+    if (!unlockedAbilitySlots[ab.key]) return;
     (ab.upgrades || []).forEach(u => {
       const key = `${ab.key}_T${u.tier}`;
       if (unlockedAbilityTiers[key]) {
@@ -704,10 +725,10 @@ function computeAbilityStatDeltas(unlockedAbilityTiers, selectedHero) {
   return deltas;
 }
 
-function computeFinalDeltas(hero, build, unlockedBoons, unlockedAbilityTiers){
+function computeFinalDeltas(hero, build, unlockedBoons, unlockedAbilityTiers, unlockedAbilitySlots){
   const raw = computeRawTotals(build);
   const inv = computeInvestments(build);
-  const abDeltas = computeAbilityStatDeltas(unlockedAbilityTiers, hero);
+  const abDeltas = computeAbilityStatDeltas(unlockedAbilityTiers, unlockedAbilitySlots, hero);
   const final = Object.assign({}, raw);
 
   // Boon stat increases synced directly to total item souls
@@ -748,6 +769,7 @@ export default function SoulLedger(){
   const [itemQuery, setItemQuery] = useState("");
 
   const [walkersDestroyed, setWalkersDestroyed] = useState(0);
+  const [unlockedAbilitySlots, setUnlockedAbilitySlots] = useState({});
   const [unlockedAbilityTiers, setUnlockedAbilityTiers] = useState({});
   const [slotLimitWarning, setSlotLimitWarning] = useState("");
 
@@ -779,6 +801,7 @@ export default function SoulLedger(){
   function pickHero(h){
     setSelectedHero(h);
     setBuild([]);
+    setUnlockedAbilitySlots({});
     setUnlockedAbilityTiers({});
     setSlotLimitWarning("");
   }
@@ -787,6 +810,11 @@ export default function SoulLedger(){
     setSlotLimitWarning("");
     if (build.includes(it)) {
       setBuild(prev => prev.filter(b=>b!==it));
+      return;
+    }
+
+    if (it.active && build.filter(item => item.active).length >= 4) {
+      setSlotLimitWarning("Active item limit reached (4 maximum). Remove an active item before adding another.");
       return;
     }
 
@@ -804,21 +832,42 @@ export default function SoulLedger(){
     setBuild(prev => prev.filter((_,i)=>i!==idx));
   }
 
-  // Each ability tier costs 1 AP. T2 requires T1, T3 requires T2.
-  // AP budget = unlockedBoons (each boon = 1 ability point).
+  function toggleAbilityUnlock(abilityIndex) {
+    const ability = selectedHero?.abilities?.[abilityIndex];
+    if (!ability) return;
+    setUnlockedAbilitySlots(prev => {
+      const isUnlocked = !!prev[ability.key];
+      if (isUnlocked) {
+        const next = { ...prev, [ability.key]: false };
+        setUnlockedAbilityTiers(current => {
+          const cleared = { ...current };
+          (ability.upgrades || []).forEach(u => { cleared[`${ability.key}_T${u.tier}`] = false; });
+          return cleared;
+        });
+        return next;
+      }
+      if (Object.values(prev).filter(Boolean).length >= abilityUnlocks) return prev;
+      if (abilityIndex === 3 && level < 7) return prev;
+      return { ...prev, [ability.key]: true };
+    });
+  }
+
+  // Ability tiers cost their listed AP. T2 requires T1, T3 requires T2.
   function toggleAbilityTier(key, tier) {
     const tierKey = `${key}_T${tier}`;
     setUnlockedAbilityTiers(prev => {
       const isCurrentlyUnlocked = !!prev[tierKey];
+      const abilityIndex = selectedHero?.abilities?.findIndex(ab => ab.key === key) ?? -1;
 
       // If unlocking: check prerequisites and AP budget
       if (!isCurrentlyUnlocked) {
+        if (abilityIndex < 0 || !unlockedAbilitySlots[key]) return prev;
         // Prerequisite: previous tiers must be unlocked
         if (tier >= 2 && !prev[`${key}_T${tier - 1}`]) return prev;
 
-        // AP budget check: count currently spent AP, see if we can afford 1 more
-        const spentAP = Object.values(prev).filter(Boolean).length;
-        if (spentAP >= unlockedBoons) return prev; // not enough AP
+        const upgrade = selectedHero.abilities[abilityIndex].upgrades?.find(u => u.tier === tier);
+        const cost = upgrade?.apCost || 1;
+        if (spentAP + cost > abilityPoints) return prev;
 
         return { ...prev, [tierKey]: true };
       }
@@ -834,11 +883,17 @@ export default function SoulLedger(){
 
   // Soul Boons are automatically synced to total item soul value
   const buildSouls = useMemo(()=>build.reduce((a,b)=>a+TIER_COST[b.tier],0), [build]);
-  const unlockedBoons = useMemo(() => Math.min(25, Math.floor(buildSouls / 1000)), [buildSouls]);
+  const progression = useMemo(() => getHeroProgression(buildSouls), [buildSouls]);
+  const { level, abilityUnlocks, abilityPoints } = progression;
+  const displayLevel = Math.max(0, level);
+  const unlockedBoons = level;
 
-  // Each boon = 1 ability point. Spent AP = number of unlocked tiers.
-  const spentAP = useMemo(() => Object.values(unlockedAbilityTiers).filter(Boolean).length, [unlockedAbilityTiers]);
-  const availableAP = unlockedBoons - spentAP;
+  const spentAP = useMemo(() => selectedHero?.abilities?.reduce((total, ab) => (
+    total + (ab.upgrades || []).reduce((abilityTotal, u) => (
+      abilityTotal + (unlockedAbilityTiers[`${ab.key}_T${u.tier}`] ? (u.apCost || 1) : 0)
+    ), 0)
+  ), 0) || 0, [selectedHero, unlockedAbilityTiers]);
+  const availableAP = Math.max(0, abilityPoints - spentAP);
 
   const filteredHeroes = useMemo(()=>{
     const q = heroQuery.trim().toLowerCase();
@@ -846,8 +901,8 @@ export default function SoulLedger(){
   },[heroes, heroQuery]);
 
   const { inv, boons, abDeltas, final: totals } = useMemo(
-    ()=>computeFinalDeltas(selectedHero, build, unlockedBoons, unlockedAbilityTiers),
-    [selectedHero, build, unlockedBoons, unlockedAbilityTiers]
+    ()=>computeFinalDeltas(selectedHero, build, unlockedBoons, unlockedAbilityTiers, unlockedAbilitySlots),
+    [selectedHero, build, unlockedBoons, unlockedAbilityTiers, unlockedAbilitySlots]
   );
 
   const filteredItemsByTier = useMemo(()=>{
@@ -973,17 +1028,18 @@ export default function SoulLedger(){
               <div className="boons-card">
                 <div className="boons-head">
                   <span className="boons-title">⚡ SOUL BOONS (AUTO-SYNCED)</span>
-                  <span className="boons-badge">{unlockedBoons} / 25 BOONS</span>
+                  <span className="boons-badge">LEVEL {displayLevel} / {MAX_LEVEL}</span>
                 </div>
                 <div style={{fontSize:"11px", color:"var(--text-dim)", fontFamily:"'IBM Plex Mono',monospace", margin:"4px 0 8px"}}>
                   Item Build Value: <b style={{color:"var(--souls)"}}>{buildSouls.toLocaleString()}</b> Souls
-                  {unlockedBoons < 25 ? ` · Next Boon at ${((unlockedBoons + 1) * 1000).toLocaleString()} souls` : ' · Max Boons Reached'}
+                  {level < MAX_LEVEL ? ` · Next level at ${LEVEL_SOUL_THRESHOLDS[level === 0 ? 0 : level + 1].toLocaleString()} souls` : ' · Max Level Reached'}
                 </div>
                 <div className="boon-stats-preview">
                   <div className="boon-stat-chip">Max Health: <b>+{round1(boons.hp)}</b></div>
                   <div className="boon-stat-chip">Weapon Dmg: <b>+{round1(boons.dmgPct)}%</b></div>
                   <div className="boon-stat-chip">Spirit Power: <b>+{round1(boons.spirit)}</b></div>
-                  <div className="boon-stat-chip">AP: <b style={{color: availableAP > 0 ? 'var(--vitality)' : 'var(--text-faint)'}}>{spentAP} / {unlockedBoons}</b> ({availableAP} free)</div>
+                  <div className="boon-stat-chip">Ability Points: <b style={{color: availableAP > 0 ? 'var(--vitality)' : 'var(--text-faint)'}}>{availableAP}</b> available</div>
+                  <div className="boon-stat-chip">Ability Unlocks: <b>{abilityUnlocks} / 4</b></div>
                 </div>
               </div>
 
@@ -1082,43 +1138,53 @@ export default function SoulLedger(){
                   <span>{selectedHero.n}</span>
                 </div>
                 <div className="abilities-grid">
-                  {selectedHero.abilities.map(ab => (
-                    <div className="ability-card" key={ab.key}>
+                  {selectedHero.abilities.map((ab, abilityIndex) => {
+                    const abilityUnlocked = !!unlockedAbilitySlots[ab.key];
+                    const canUnlock = !abilityUnlocked && abilityUnlocks > Object.values(unlockedAbilitySlots).filter(Boolean).length && (abilityIndex < 3 || level >= 7);
+                    return <div className={"ability-card" + (abilityUnlocked ? "" : " ability-locked")} key={ab.key}>
                       <div>
                         <div className="ability-head">
                           {ab.image && <img src={ab.image} alt={ab.name} className="ability-img" onError={e=>e.target.style.display='none'} />}
                           <div className="ability-title-box">
                             <div className="ability-name">{ab.name}</div>
-                            <div className="ability-slot">{ab.slot}</div>
+                            <div className="ability-slot">{ab.slot} · {abilityUnlocked ? "UNLOCKED" : (abilityIndex === 3 ? "Requires level 7" : "Choose to unlock")}</div>
                           </div>
                         </div>
+                        {!abilityUnlocked && (
+                          <button className="ability-tier-btn" disabled={!canUnlock} onClick={() => toggleAbilityUnlock(abilityIndex)}>
+                            <span>Unlock this ability</span>
+                            <span>{canUnlock ? "UNLOCK" : (abilityIndex === 3 && level < 7 ? "LEVEL 7" : "NO UNLOCK")}</span>
+                          </button>
+                        )}
                       </div>
                       <div className="ability-upgrades">
                         {(ab.upgrades || []).map(u => {
                           const tierKey = `${ab.key}_T${u.tier}`;
                           const isUnlocked = !!unlockedAbilityTiers[tierKey];
                           const prevLocked = u.tier >= 2 && !unlockedAbilityTiers[`${ab.key}_T${u.tier - 1}`];
-                          const noAP = !isUnlocked && availableAP <= 0;
+                          const noAP = !isUnlocked && availableAP < (u.apCost || 1);
                           const bonusTxt = u.bonuses.map(b => b.formatted).join(', ') || `Tier ${u.tier} Upgrade`;
-                          let statusTxt = isUnlocked ? "✓ UNLOCKED" : "1 AP";
+                          const abilityStatus = !abilityUnlocked ? "Unlock ability first" : `${u.apCost || 1} AP`;
+                          let statusTxt = isUnlocked ? "✓ UNLOCKED" : `${u.apCost || 1} AP`;
                           if (!isUnlocked && prevLocked) statusTxt = `🔒 Need T${u.tier - 1}`;
                           else if (!isUnlocked && noAP) statusTxt = "No AP";
-                          const isDisabled = !isUnlocked && (prevLocked || noAP);
+                          const isDisabled = !abilityUnlocked || (!isUnlocked && (prevLocked || noAP));
                           return (
                             <button
                               key={u.tier}
                               className={"ability-tier-btn" + (isUnlocked ? " unlocked" : "") + (isDisabled ? " disabled-tier" : "")}
                               onClick={() => toggleAbilityTier(ab.key, u.tier)}
+                              disabled={isDisabled}
                               style={isDisabled ? { opacity: 0.45, cursor: 'not-allowed' } : {}}
                             >
                               <span><span className="t-badge">T{u.tier}:</span> {bonusTxt}</span>
-                              <span>{statusTxt}</span>
+                              <span>{isUnlocked ? "UNLOCKED" : (abilityUnlocked ? statusTxt : abilityStatus)}</span>
                             </button>
                           );
                         })}
                       </div>
                     </div>
-                  ))}
+                  })}
                 </div>
               </div>
             )}
