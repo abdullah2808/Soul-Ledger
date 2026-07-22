@@ -175,12 +175,21 @@ header.top{
 /* ===== Stat panel ===== */
 .stat-row{
   display:grid; grid-template-columns:1fr auto auto; gap:10px; align-items:center;
-  padding:7px 0; border-bottom:1px solid #1c1f24; font-family:'IBM Plex Mono',monospace; font-size:12.5px;
+  position:relative; padding:7px 0; border-bottom:1px solid #1c1f24; font-family:'IBM Plex Mono',monospace; font-size:12.5px; cursor:help;
 }
 .stat-row:last-child{ border-bottom:none; }
 .stat-row .label{ color:var(--text-dim); font-family:'Inter',sans-serif; font-size:12.5px; }
 .stat-row .total{ text-align:right; min-width:70px; font-weight:600; color:var(--text); }
 .stat-row .delta{ font-size:10.5px; }
+.stat-tooltip{
+  display:none; position:absolute; z-index:20; left:0; top:calc(100% - 1px); min-width:250px; max-width:340px;
+  padding:9px 10px; background:#0d0f12; border:1px solid var(--spirit); border-radius:var(--radius);
+  box-shadow:0 8px 20px #000b; color:var(--text-dim); font:10.5px/1.55 'IBM Plex Mono',monospace;
+}
+.stat-row:hover .stat-tooltip{ display:block; }
+.stat-tooltip-title{ color:var(--text); font-weight:600; margin-bottom:4px; }
+.stat-tooltip-line{ display:flex; justify-content:space-between; gap:16px; }
+.stat-tooltip-line b{ color:var(--text); white-space:nowrap; }
 .delta.pos{ color:var(--vitality); }
 .delta.neg{ color:var(--danger); }
 .delta.zero{ color:var(--text-faint); }
@@ -289,6 +298,7 @@ header.top{
 .ability-tier-btn:hover{ border-color:var(--text-dim); color:var(--text); }
 .ability-tier-btn.unlocked{ border-color:var(--spirit); background:#1c1730; color:var(--text); }
 .ability-tier-btn .t-badge{ font-weight:600; color:var(--spirit); }
+.ability-tier-btn > span:last-child{ margin-left:10px; white-space:nowrap; }
 
 /* ===== Conditional effects panel ===== */
 .cond-panel{ margin-top:20px; }
@@ -920,6 +930,57 @@ export default function SoulLedger(){
 
   const conditionalItems = useMemo(()=>build.filter(it=>it.active || it.cond), [build]);
 
+  function getStatBreakdown(statKey, statDef){
+    const lines = [{ label: `Base ${selectedHero.n}`, value: baseValue(selectedHero, statKey) }];
+    const raw = computeRawTotals(build);
+    const boonHpBonus = (selectedHero.levelUp?.hp || 39) * unlockedBoons;
+    const boonDmgPct = (selectedHero.levelUp?.dmg || 0.088) * unlockedBoons * 100;
+    const boonSpiritBonus = (selectedHero.levelUp?.spirit || 1.1) * unlockedBoons;
+
+    build.forEach(item => {
+      const value = item.mods?.[statKey] || 0;
+      if (value) lines.push({ label: item.n, value });
+    });
+    if (statKey === "hp" && boonHpBonus) lines.push({ label: "Soul boons", value: boonHpBonus });
+    if (statKey === "dmg" && boonDmgPct) lines.push({ label: "Soul boons", value: baseValue(selectedHero, "dmg") * (boonDmgPct / 100) });
+    if (statKey === "spirit" && boonSpiritBonus) lines.push({ label: "Soul boons", value: boonSpiritBonus });
+
+    selectedHero.abilities?.forEach(ab => {
+      if (!unlockedAbilitySlots[ab.key]) return;
+      (ab.upgrades || []).forEach(u => {
+        if (!unlockedAbilityTiers[`${ab.key}_T${u.tier}`]) return;
+        u.bonuses.forEach(b => {
+          const value = Number(b.bonus);
+          const abilityStat = ['BonusHealth', 'MaxHealth', 'BonusMaxHealth'].includes(b.prop) ? 'hp'
+            : ['BonusHealthRegen', 'BaseHealthRegen', 'HealthRegen'].includes(b.prop) ? 'regen'
+            : ['BaseAttackDamagePercent', 'WeaponPower', 'BuffBaseWeaponPct', 'BonusDamagePercent'].includes(b.prop) ? 'dmg'
+            : ['TechPower', 'SpiritPower', 'BonusSpirit', 'BonusSpiritPower'].includes(b.prop) ? 'spirit'
+            : ['BonusFireRate', 'FireRate', 'AttackSpeedMult'].includes(b.prop) ? 'fireRate'
+            : ['BonusClipSizePercent', 'BonusClipSize'].includes(b.prop) ? 'clip'
+            : ['BulletArmor', 'BulletResist', 'BulletArmorReduction'].includes(b.prop) ? 'bulletArmor'
+            : ['SpiritArmor', 'SpiritResist', 'TechResist', 'TechArmor'].includes(b.prop) ? 'spiritArmor'
+            : ['BonusMoveSpeed', 'MoveSpeedMax', 'BonusMoveSpeedPercent'].includes(b.prop) ? 'move'
+            : ['BonusSprintSpeed'].includes(b.prop) ? 'sprint'
+            : ['Stamina', 'BonusStamina'].includes(b.prop) ? 'stamina'
+            : ['AbilityCooldown', 'AbilityCooldownReduction'].includes(b.prop) ? 'cdr' : null;
+          if (abilityStat === statKey && !isNaN(value) && value !== 0) {
+            lines.push({ label: `${ab.name} · T${u.tier}`, value, text: b.formatted });
+          }
+        });
+      });
+    });
+
+    if (statKey === "dmg" && inv.weapon.value) {
+      const beforeInvestment = baseValue(selectedHero, "dmg") + raw.dmg + (baseValue(selectedHero, "dmg") * (boonDmgPct / 100)) + abDeltas.dmg;
+      lines.push({ label: `Soul investment · Weapon (${inv.weapon.value}%)`, value: beforeInvestment * inv.weapon.value / 100 });
+    }
+    if (statKey === "hp" && inv.vitality.value) {
+      lines.push({ label: `Soul investment · Vitality (${inv.vitality.value}%)`, value: (raw.hp + boonHpBonus + abDeltas.hp) * inv.vitality.value / 100 });
+    }
+    if (statKey === "spirit" && inv.spirit.value) lines.push({ label: `Soul investment · Spirit`, value: inv.spirit.value });
+    return lines.map(line => ({ ...line, display: line.text || `${line.value >= 0 ? "+" : ""}${round1(line.value)}${statDef.unit}` }));
+  }
+
   return (
     <div style={{minHeight:"100vh", background:"var(--bg)"}}>
       <style>{CSS_STYLES}</style>
@@ -1083,6 +1144,7 @@ export default function SoulLedger(){
                   const base = baseValue(selectedHero, s.k);
                   const delta = totals[s.k] || 0;
                   const total = base + delta;
+                  const breakdown = getStatBreakdown(s.k, s);
                   const deltaClass = delta > 0 ? "pos" : (delta < 0 ? "neg" : "zero");
                   const deltaTxt = delta === 0 ? "—" : (delta > 0 ? "+"+round1(delta) : round1(delta)) + s.unit;
                   return (
@@ -1090,6 +1152,14 @@ export default function SoulLedger(){
                       <span className="label">{s.label}</span>
                       <span className="total">{round1(total)}{s.unit}</span>
                       <span className={"delta "+deltaClass}>{deltaTxt}</span>
+                      <div className="stat-tooltip">
+                        <div className="stat-tooltip-title">{s.label} breakdown</div>
+                        {breakdown.map((line, index) => (
+                          <div className="stat-tooltip-line" key={line.label + index}>
+                            <span>{line.label}</span><b>{line.display}</b>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   );
                 })}
