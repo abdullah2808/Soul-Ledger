@@ -421,26 +421,24 @@ const FALLBACK_HEROES = [
 const TIER_COST = {1:800,2:1600,3:3200,4:6400};
 
 const FALLBACK_ITEMS = [
- {n:"Close Quarters",cat:"weapon",tier:1,effect:"Bullet falloff start range +10m · Weapon Damage: +6%",mods:{dmg:6}},
- {n:"Extended Magazine",cat:"weapon",tier:1,effect:"Max Ammo: +30% · Weapon Damage: +8%",mods:{clip:30,dmg:8}},
- {n:"Headshot Booster",cat:"weapon",tier:1,effect:"Headshot Bonus Damage: +45 · Weapon Damage: +5%",mods:{dmg:5},cond:"Bonus headshot damage triggers on headshots."},
+ {n:"Close Quarters",cat:"weapon",tier:1,effect:"Weapon Damage (close range): +20% · Melee Resist: +20%",mods:{dmg:20},cond:"Bonus weapon damage only applies at close range to your target."},
+ {n:"Extended Magazine",cat:"weapon",tier:1,effect:"Max Ammo: +30% · Weapon Damage: +8%",mods:{clipPct:30,dmg:8}},
+ {n:"Headshot Booster",cat:"weapon",tier:1,effect:"Next headshot on an enemy hero deals +45 bonus damage · Bonus Health: +30",mods:{hp:30},cond:"Triggers automatically on your next headshot against an enemy hero (9s cooldown)."},
  {n:"High-Velocity Rounds",cat:"weapon",tier:1,effect:"Bullet Velocity: +60% · Weapon Damage: +8%",mods:{dmg:8}},
  {n:"Monster Rounds",cat:"weapon",tier:1,effect:"Weapon Damage vs NPCs: +25% · Out of Combat Regen: +1 · Bullet Resist vs NPCs: +25%",mods:{regen:1},cond:"Bonus damage applies against non-hero targets."},
- {n:"Rapid Rounds",cat:"weapon",tier:1,effect:"Fire Rate: +8% · Weapon Damage: -2%",mods:{fireRate:8,dmg:-2}},
- {n:"Active Reload",cat:"weapon",tier:2,effect:"Max Ammo: +10% · Weapon Damage: +10% · Fire Rate on Timed Reload: +20%",mods:{clip:10,dmg:10},cond:"Triggers on a successful timed reload."},
- {n:"Mystic Shot",cat:"weapon",tier:2,effect:"Spirit Damage on Shot: +65 · Spirit Power: +6 · Weapon Damage: +5%",mods:{dmg:5,spirit:6}},
- {n:"Tesla Bullets",cat:"weapon",tier:3,effect:"Shock Damage: +33 · Proc Chance: +15% · Max Jumps: +4",mods:{}},
- {n:"Glass Cannon",cat:"weapon",tier:4,effect:"Weapon Damage: +70% · Spirit Power: +22 · Max Health: -150",mods:{dmg:70,spirit:22,hp:-150}},
- {n:"Extra Health",cat:"vitality",tier:1,effect:"Max Health: +175 · Weapon Damage: +5%",mods:{hp:175,dmg:5}},
- {n:"Extra Regen",cat:"vitality",tier:1,effect:"Health Regen: +3 · Max Health: +50",mods:{regen:3,hp:50}},
- {n:"Extra Stamina",cat:"vitality",tier:1,effect:"Stamina Charges: +1 · Stamina Recovery: +10% · Max Health: +35",mods:{stamina:1,hp:35}},
- {n:"Bullet Armor",cat:"vitality",tier:2,effect:"Bullet Resist: +20% · Weapon Damage: +6%",mods:{bulletArmor:20,dmg:6}},
- {n:"Spirit Armor",cat:"vitality",tier:2,effect:"Spirit Resist: +20% · Spirit Power: +6",mods:{spiritArmor:20,spirit:6}},
- {n:"Fortitude",cat:"vitality",tier:3,effect:"Max Health: +200 · Health Regen: +2 · Weapon Damage: +8%",mods:{hp:200,regen:2,dmg:8}},
- {n:"Extra Spirit",cat:"spirit",tier:1,effect:"Spirit Power: +10 · Max Health: +35",mods:{spirit:10,hp:35}},
- {n:"Compress Cooldown",cat:"spirit",tier:2,effect:"−Ability Cooldowns: +10% · Spirit Power: +6",mods:{cdr:10,spirit:6}},
- {n:"Superior Cooldown",cat:"spirit",tier:3,effect:"−Ability Cooldowns: +14% · Spirit Power: +12",mods:{cdr:14,spirit:12}},
- {n:"Boundless Spirit",cat:"spirit",tier:4,effect:"Spirit Power: +30 · Max Health: +100 · Health Regen: +3",mods:{spirit:30,hp:100,regen:3}},
+ {n:"Rapid Rounds",cat:"weapon",tier:1,effect:"Fire Rate: +9%",mods:{fireRate:9}},
+ {n:"Active Reload",cat:"weapon",tier:2,effect:"Max Ammo: +20% · On a successful timed reload: Fire Rate +25%, Bullet Lifesteal +16%, for a short duration",mods:{clipPct:20},cond:"Triggers on a successful timed reload — press Reload again during the highlighted window."},
+ {n:"Mystic Shot",cat:"weapon",tier:2,effect:"Spirit Power: +7 · Next bullet deals +40 bonus Spirit damage",mods:{spirit:7},cond:"Bonus spirit damage triggers automatically on your next bullet hit (9s cooldown)."},
+ {n:"Tesla Bullets",cat:"weapon",tier:3,effect:"Shock Damage: +33 · Damage on Jump: +33 · Proc Chance: +15% · Max Jumps: +4",mods:{}},
+ {n:"Glass Cannon",cat:"weapon",tier:4,effect:"Weapon Damage: +80% · Max Health: -13% · Fire Rate: +7% per hero kill (max 8 stacks, lost on death)",mods:{dmg:80},cond:"Fire Rate stacks build on hero kills (up to 8) and reset on death; the Max Health penalty is 13% of your max health."},
+ {n:"Extra Health",cat:"vitality",tier:1,effect:"Max Health: +210",mods:{hp:210}},
+ {n:"Extra Regen",cat:"vitality",tier:1,effect:"Health Regen: +2.5 · Out of Combat Regen: +1.5",mods:{regen:2.5},cond:"Out of Combat Regen only applies when you haven't taken or dealt damage recently."},
+ {n:"Extra Stamina",cat:"vitality",tier:1,effect:"Stamina Charges: +1 · Stamina Recovery: +12%",mods:{stamina:1}},
+ {n:"Fortitude",cat:"vitality",tier:3,effect:"Max Health: +375 · After 10s out of combat, regen +2% max health per second · Bonus Move Speed above 75% health",mods:{hp:375},cond:"Regen bonus starts 10s after you last took damage; move speed bonus only applies while above 75% max health."},
+ {n:"Extra Spirit",cat:"spirit",tier:1,effect:"Spirit Power: +10",mods:{spirit:10}},
+ {n:"Compress Cooldown",cat:"spirit",tier:2,effect:"Ability Cooldown Reduction: +18% (imbued on one ability)",mods:{cdr:18},imbued:true},
+ {n:"Superior Cooldown",cat:"spirit",tier:3,effect:"Ability Cooldown Reduction: +20% · Out of Combat Regen: +4",mods:{cdr:20,regen:4}},
+ {n:"Boundless Spirit",cat:"spirit",tier:4,effect:"Spirit Power: +30 (+15% additional Spirit Power) · Max Health: +75 · Out of Combat Regen: +4",mods:{spirit:30,hp:75,regen:4}},
 ];
 
 const STAT_DEFS = [
@@ -920,12 +918,6 @@ async function fetchDeadlockData(signal){
       const cost = i.cost || TIER_COST[tier] || 800;
 
       const mods = Object.assign({}, match?.mods || {});
-      if (match?.n === "Extended Magazine" || match?.n === "Active Reload") {
-        if (mods.clip !== undefined) {
-          mods.clipPct = mods.clip;
-          delete mods.clip;
-        }
-      }
       const statDisplays = [];
 
       if (i.properties) {
@@ -958,12 +950,16 @@ async function fetchDeadlockData(signal){
         });
       }
 
-      let description = getDescriptionText(i.description) || match?.effect || '';
+      let description = getDescriptionText(i.description);
       if (!description) {
+        // Prefer building the hover text from the same live properties that
+        // populate the green stat chips below, so the two can never disagree.
+        // Only fall back to the bundled snapshot's hand-written text (which
+        // can go stale as the game gets rebalanced) if live data has nothing.
         if (statDisplays.length > 0) {
           description = statDisplays.map(s => `${s.label}: ${s.value}`).join(' · ');
         } else {
-          description = "Deadlock shop upgrade.";
+          description = match?.effect || "Deadlock shop upgrade.";
         }
       }
 
@@ -1109,11 +1105,17 @@ function computeFinalDeltas(hero, build, unlockedBoons, unlockedAbilityTiers, un
   const boonDmgPct = (hero.levelUp?.dmg || 0.088) * unlockedBoons * 100;
   const boonSpiritBonus = (hero.levelUp?.spirit || 1.1) * unlockedBoons;
 
+  // Item mods.dmg (e.g. Extended Magazine's "+8% Weapon Damage") and ability weapon-damage
+  // upgrades are percentage bonuses, same as the per-level soul-boon bonus above — they
+  // stack additively as percentages of the hero's base bullet damage, then Soul Investment
+  // applies as one more multiplicative layer on top (matching how the game itself layers
+  // these bonus sources).
   const baseDmg = baseValue(hero, 'dmg');
-  const dmgBeforeInvest = baseDmg + raw.dmg + (baseDmg * (boonDmgPct / 100)) + abDeltas.dmg;
+  const totalDmgPct = raw.dmg + boonDmgPct + abDeltas.dmg;
+  const dmgBeforeInvest = baseDmg * (1 + totalDmgPct / 100);
   const weaponBonusDmg = dmgBeforeInvest * (inv.weapon.value/100);
 
-  final.dmg = raw.dmg + (baseDmg * (boonDmgPct / 100)) + abDeltas.dmg + weaponBonusDmg;
+  final.dmg = (dmgBeforeInvest - baseDmg) + weaponBonusDmg;
   final.hp = raw.hp + boonHpBonus + abDeltas.hp + ((raw.hp + boonHpBonus + abDeltas.hp) * (inv.vitality.value/100));
   final.spirit = raw.spirit + boonSpiritBonus + abDeltas.spirit + inv.spirit.value;
   final.clip = raw.clip + (baseValue(hero, 'clip') * (raw.clipPct / 100)) + abDeltas.clip + (baseValue(hero, 'clip') * (abDeltas.clipPct / 100));
@@ -1386,6 +1388,21 @@ export default function SoulLedger(){
     const boonSpiritBonus = (selectedHero.levelUp?.spirit || 1.1) * unlockedBoons;
 
     build.forEach(item => {
+      // dmg (and clip's percentage twin, clipPct) are percentage bonuses off the hero's
+      // base value, same as the soul-boon line below — show the item's own "+X%" as the
+      // label text, but contribute the properly scaled absolute amount to the total.
+      if (statKey === "dmg") {
+        const pct = item.mods?.dmg || 0;
+        if (pct) lines.push({ label: item.n, value: baseValue(selectedHero, "dmg") * (pct / 100), text: `${pct > 0 ? "+" : ""}${round1(pct)}%` });
+        return;
+      }
+      if (statKey === "clip") {
+        const flat = item.mods?.clip || 0;
+        const pct = item.mods?.clipPct || 0;
+        if (flat) lines.push({ label: item.n, value: flat });
+        if (pct) lines.push({ label: item.n, value: baseValue(selectedHero, "clip") * (pct / 100), text: `${pct > 0 ? "+" : ""}${round1(pct)}%` });
+        return;
+      }
       const value = item.mods?.[statKey] || 0;
       if (value) lines.push({ label: item.n, value });
     });
@@ -1419,7 +1436,9 @@ export default function SoulLedger(){
     });
 
     if (statKey === "dmg" && inv.weapon.value) {
-      const beforeInvestment = baseValue(selectedHero, "dmg") + raw.dmg + (baseValue(selectedHero, "dmg") * (boonDmgPct / 100)) + abDeltas.dmg;
+      const baseDmg = baseValue(selectedHero, "dmg");
+      const totalDmgPct = raw.dmg + boonDmgPct + abDeltas.dmg;
+      const beforeInvestment = baseDmg * (1 + totalDmgPct / 100);
       lines.push({ label: `Soul investment · Weapon (${inv.weapon.value}%)`, value: beforeInvestment * inv.weapon.value / 100 });
     }
     if (statKey === "hp" && inv.vitality.value) {
@@ -1945,10 +1964,19 @@ export default function SoulLedger(){
                                 <span className="stat-chip pos" key={s.label + idx}>{s.label}: {s.value}</span>
                               ))
                             : Object.entries(it.mods||{}).filter(([k,v])=>v!==0).map(([k,v])=>{
-                                const def = STAT_DEFS.find(s=>s.k===k);
+                                // clipPct (e.g. Extended Magazine's "+30% Max Ammo") isn't its own
+                                // stat-sheet row — it folds into the same "Clip Size" total as the
+                                // flat `clip` mod — so it has no STAT_DEFS entry of its own. Look it
+                                // up here just for the item card's own green chip.
+                                const def = k === 'clipPct' ? { label: "Clip Size", unit: "%" } : STAT_DEFS.find(s=>s.k===k);
                                 if(!def) return null;
                                 const cls = v>0?"pos":"neg";
-                                const txt = (v>0?"+":"") + round1(v) + def.unit;
+                                // dmg mods on shop items are always percentage bonuses (per the item
+                                // text), but STAT_DEFS leaves "dmg" unitless since the stat-sheet total
+                                // mixes it with the hero's flat base damage — add the "%" back here so
+                                // the chip doesn't silently drop it vs. the hover text.
+                                const unit = k === 'dmg' ? '%' : def.unit;
+                                const txt = (v>0?"+":"") + round1(v) + unit;
                                 return <span className={"stat-chip "+cls} key={k}>{def.label}: {txt}</span>;
                               });
 
