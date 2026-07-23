@@ -217,6 +217,12 @@ header.top{
 .build-item .cost{ color:var(--souls); font-family:'IBM Plex Mono',monospace; font-size:11px; }
 .build-item .rm{ cursor:pointer; color:var(--text-faint); background:none; border:none; font-size:16px; line-height:1; padding:0 4px; }
 .build-item .rm:hover{ color:var(--danger); }
+.imbue-select{
+  background:var(--bg-panel); border:1px solid var(--spirit-dim); color:var(--spirit);
+  font-family:'IBM Plex Mono',monospace; font-size:10px; padding:2px 4px; border-radius:2px;
+  max-width:110px; flex-shrink:0;
+}
+.tag.imbue-tag{ color:var(--spirit); border-color:var(--spirit-dim); }
 
 /* ===== Shop ===== */
 .shop-controls{ display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
@@ -618,22 +624,78 @@ function extractLifetimeStats(abilityObj){
   return results.slice(0, 2);
 }
 
-function extractAbilityMeta(abilityObj){
-  // AbilityCooldown/AbilityCharges/AbilityCooldownBetweenCharge/AbilityDuration are
-  // the canonical property keys Deadlock uses across every signature ability — read
-  // them directly rather than fuzzy-matching key names, which risks grabbing an
-  // unrelated stat (e.g. a target debuff's own "...Duration" property).
-  const props = abilityObj?.properties || {};
-  const numOrNull = (p) => {
-    const n = Number(p?.value);
-    return (p && !isNaN(n) && n !== 0) ? n : null;
-  };
+function numOrNull(p){
+  const n = Number(p?.value);
+  return (p && !isNaN(n) && n !== 0) ? n : null;
+}
+
+// AbilityCooldown/AbilityCharges/AbilityCooldownBetweenCharge/AbilityDuration are the
+// canonical property keys Deadlock uses across every ability *and* item that has its
+// own cast timing — read them directly rather than fuzzy-matching key names, which
+// risks grabbing an unrelated stat (e.g. a target debuff's own "...Duration" property).
+function extractTimingStats(propsObj){
+  const props = propsObj || {};
   return {
-    description: getDescriptionText(abilityObj?.description) || cleanApiText(abilityObj?.ability_description || abilityObj?.desc || abilityObj?.effect) || findApiText(abilityObj, ["description", "desc", "abilitydescription", "lore", "effect", "tooltip", "details"]),
     cooldown: numOrNull(props.AbilityCooldown),
     duration: numOrNull(props.AbilityDuration),
     charges: numOrNull(props.AbilityCharges),
     chargeDelay: numOrNull(props.AbilityCooldownBetweenCharge),
+  };
+}
+
+// Some items only affect one ability the player imbues them onto (chosen in-game),
+// rather than every ability globally — encoded by a truthy `imbue` field on the raw item.
+function isImbuedItem(rawItem){
+  return !!rawItem?.imbue;
+}
+
+function imbueKey(item){
+  return item.id ?? item.n;
+}
+
+// Imbued items apply their bonus to only whichever ability they're targeted at
+// (defaulting to the hero's first ability slot until the player picks one);
+// non-imbued items keep applying to every ability, as before.
+function itemAppliesToAbility(item, abilityKey, imbueTargets, hero){
+  if (!item.imbued) return true;
+  const target = imbueTargets[imbueKey(item)] ?? hero?.abilities?.[0]?.key;
+  return target === abilityKey;
+}
+
+// tooltip_sections' "innate" section lists properties that are always active. Other
+// sections (usually "passive") have a loc_string, but that text is sometimes just a
+// flat description of an unconditional passive (e.g. Superior Cooldown: "Reduces the
+// Cooldown of your abilities") rather than an actual trigger. Only keep ones whose text
+// reads like a real condition (Headshot Booster's "Your next headshot... deals bonus
+// weapon damage", Opening Rounds' "...against enemies above 50% health").
+const CONDITION_CUE_WORDS = /\b(if|when|while|after|next|below|above|upon|whenever|during|within)\b/i;
+function extractConditionalEffects(rawItem){
+  if (!Array.isArray(rawItem?.tooltip_sections)) return [];
+  const results = [];
+  rawItem.tooltip_sections.forEach(section => {
+    if (section.section_type === "innate") return;
+    (section.section_attributes || []).forEach(attr => {
+      const condition = cleanApiText(attr.loc_string);
+      if (!condition || !CONDITION_CUE_WORDS.test(condition)) return;
+      const propKeys = [...(attr.important_properties || []), ...(attr.properties || [])];
+      const stats = propKeys.map(propKey => {
+        const propDef = rawItem.properties?.[propKey];
+        const val = Number(propDef?.value);
+        if (!propDef || isNaN(val) || val === 0) return null;
+        const sign = val > 0 ? "+" : "";
+        return { label: propDef.label || propKey, value: sign + val + (propDef.postfix || "") };
+      }).filter(Boolean);
+      results.push({ condition, stats });
+    });
+  });
+  return results.slice(0, 3);
+}
+
+function extractAbilityMeta(abilityObj){
+  const timing = extractTimingStats(abilityObj?.properties);
+  return {
+    description: getDescriptionText(abilityObj?.description) || cleanApiText(abilityObj?.ability_description || abilityObj?.desc || abilityObj?.effect) || findApiText(abilityObj, ["description", "desc", "abilitydescription", "lore", "effect", "tooltip", "details"]),
+    ...timing,
     damageStats: extractDamageStats(abilityObj),
     lifetimeStats: extractLifetimeStats(abilityObj),
   };
@@ -818,6 +880,7 @@ async function fetchDeadlockData(signal){
           else if (['AbilityCooldownReduction', 'TechCooldown'].includes(k)) mods.cdr = Math.abs(val);
           else if (['ImbuedBonusDuration', 'BonusAbilityDurationPercent', 'AbilityDuration'].includes(k)) mods.abilityDuration = val;
           else if (['AbilityCharges', 'BonusAbilityCharges', 'AdditionalAbilityCharges', 'MaxAbilityCharges'].includes(k)) mods.abilityCharges = val;
+          else if (['Stamina', 'BonusStamina'].includes(k)) mods.stamina = val;
 
           const sign = val > 0 ? '+' : '';
           const postfix = p.postfix || '';
@@ -840,6 +903,10 @@ async function fetchDeadlockData(signal){
         .map(className => itemByClassName.get(className)?.name)
         .filter(Boolean);
 
+      const isActive = i.is_active_item !== undefined ? !!i.is_active_item : (match?.active || false);
+      const activeTiming = isActive ? extractTimingStats(i.properties) : {};
+      const conditionalEffects = extractConditionalEffects(i);
+
       return {
         id: i.id,
         n: i.name,
@@ -847,14 +914,20 @@ async function fetchDeadlockData(signal){
         tier,
         cost,
         effect: description,
-        active: i.is_active_item !== undefined ? !!i.is_active_item : (match?.active || false),
-        cond: match?.cond,
+        active: isActive,
+        cond: match?.cond || conditionalEffects[0]?.condition,
         image: i.shop_image || i.image || i.shop_image_webp,
         mods,
         statDisplays: statDisplays.slice(0, 4),
         tags: match?.tags || [cat.toUpperCase(), 'T' + tier],
         upgradesFrom,
         upgradesInto: [],
+        imbued: isImbuedItem(i),
+        activeCooldown: activeTiming.cooldown,
+        activeDuration: activeTiming.duration,
+        activeCharges: activeTiming.charges,
+        activeChargeDelay: activeTiming.chargeDelay,
+        conditionalEffects,
         live: true
       };
     });
@@ -1019,6 +1092,9 @@ export default function SoulLedger(){
   const [unlockedAbilitySlots, setUnlockedAbilitySlots] = useState({});
   const [unlockedAbilityTiers, setUnlockedAbilityTiers] = useState({});
   const [slotLimitWarning, setSlotLimitWarning] = useState("");
+  // Which ability an imbue-type item (e.g. Compress Cooldown) has been imbued onto -
+  // keyed by item id (falls back to name for fallback-snapshot items without an id).
+  const [imbueTargets, setImbueTargets] = useState({});
 
   function toggleSection(section){
     setCollapsedSections(prev => ({ ...prev, [section]: !prev[section] }));
@@ -1061,6 +1137,7 @@ export default function SoulLedger(){
     setUnlockedAbilitySlots({});
     setUnlockedAbilityTiers({});
     setSlotLimitWarning("");
+    setImbueTargets({});
   }
 
   function toggleItem(it){
@@ -1072,6 +1149,16 @@ export default function SoulLedger(){
 
     if (it.active && build.filter(item => item.active).length >= 4) {
       setSlotLimitWarning("Active item limit reached (4 maximum). Remove an active item before adding another.");
+      return;
+    }
+
+    // A base item and anything it upgrades into are mutually exclusive - owning
+    // the upgrade already supersedes the base, so block re-buying the base.
+    // (Multiple different upgrades of the same base, e.g. Arcane Surge + Stamina
+    // Mastery both from Extra Stamina, are still allowed to coexist.)
+    const ownedUpgrades = (it.upgradesInto || []).filter(name => build.some(b => b.n === name));
+    if (ownedUpgrades.length > 0) {
+      setSlotLimitWarning(`You already own ${ownedUpgrades.join(', ')}, which upgrades from ${it.n} — remove it first if you want the base item instead.`);
       return;
     }
 
@@ -1364,6 +1451,16 @@ export default function SoulLedger(){
                     <div className="build-item" key={it.n+idx}>
                       {it.image ? <img src={it.image} alt={it.n} className="build-item-icon" onError={e=>e.target.style.display='none'} /> : null}
                       <span className="nm">{it.n}</span>
+                      {it.imbued && selectedHero?.abilities?.length > 0 && (
+                        <select
+                          className="imbue-select"
+                          title="Which ability this item is imbued onto"
+                          value={imbueTargets[imbueKey(it)] ?? selectedHero.abilities[0].key}
+                          onChange={e => setImbueTargets(prev => ({ ...prev, [imbueKey(it)]: e.target.value }))}
+                        >
+                          {selectedHero.abilities.map(ab => <option key={ab.key} value={ab.key}>{ab.name}</option>)}
+                        </select>
+                      )}
                       <span className="cost">{TIER_COST[it.tier]}</span>
                       <button className="rm" title="Remove" onClick={()=>removeAt(idx)}>×</button>
                     </div>
@@ -1470,6 +1567,16 @@ export default function SoulLedger(){
                   <div className="build-item" key={it.n+idx}>
                     {it.image ? <img src={it.image} alt={it.n} className="build-item-icon" onError={e=>e.target.style.display='none'} /> : null}
                     <span className="nm">{it.n}</span>
+                    {it.imbued && selectedHero?.abilities?.length > 0 && (
+                      <select
+                        className="imbue-select"
+                        title="Which ability this item is imbued onto"
+                        value={imbueTargets[imbueKey(it)] ?? selectedHero.abilities[0].key}
+                        onChange={e => setImbueTargets(prev => ({ ...prev, [imbueKey(it)]: e.target.value }))}
+                      >
+                        {selectedHero.abilities.map(ab => <option key={ab.key} value={ab.key}>{ab.name}</option>)}
+                      </select>
+                    )}
                     <span className="cost">{TIER_COST[it.tier]}</span>
                     <button className="rm" title="Remove" onClick={()=>removeAt(idx)}>×</button>
                   </div>
@@ -1511,11 +1618,14 @@ export default function SoulLedger(){
                     const upgradeChargeBonus = activeUpgradeBonuses.filter(b => b.prop === "AbilityCharges").reduce((sum, b) => sum + Number(b.bonus || 0), 0);
                     const upgradeCooldownDelta = activeUpgradeBonuses.filter(b => b.prop === "AbilityCooldown").reduce((sum, b) => sum + Number(b.bonus || 0), 0);
                     const upgradeDurationDelta = activeUpgradeBonuses.filter(b => b.prop === "AbilityDuration").reduce((sum, b) => sum + Number(b.bonus || 0), 0);
-                    const itemChargeBonus = build.reduce((sum, item) => sum + (item.mods?.abilityCharges || 0), 0);
+                    // Imbued items (e.g. Compress Cooldown) only count toward the ability
+                    // they're targeted at; non-imbued items (e.g. Superior Cooldown) still
+                    // apply to every ability as before.
+                    const itemChargeBonus = build.reduce((sum, item) => sum + (itemAppliesToAbility(item, ab.key, imbueTargets, selectedHero) ? (item.mods?.abilityCharges || 0) : 0), 0);
                     const effectiveCharges = ab.charges == null ? null : ab.charges + itemChargeBonus + upgradeChargeBonus;
-                    const itemCdr = build.reduce((sum, item) => sum + (item.mods?.cdr || 0), 0);
+                    const itemCdr = build.reduce((sum, item) => sum + (itemAppliesToAbility(item, ab.key, imbueTargets, selectedHero) ? (item.mods?.cdr || 0) : 0), 0);
                     const adjustedCooldown = ab.cooldown == null ? null : Math.max(0, (ab.cooldown + upgradeCooldownDelta) * (1 - Math.max(0, itemCdr) / 100));
-                    const abilityDurationPct = build.reduce((sum, item) => sum + (item.mods?.abilityDuration || 0), 0);
+                    const abilityDurationPct = build.reduce((sum, item) => sum + (itemAppliesToAbility(item, ab.key, imbueTargets, selectedHero) ? (item.mods?.abilityDuration || 0) : 0), 0);
                     const adjustedDuration = ab.duration == null ? null : Math.max(0, ab.duration + upgradeDurationDelta) * (1 + abilityDurationPct / 100);
                     // Combine each damage stat's base value with any unlocked-upgrade bonus:
                     // flat bonuses add to the base, EAddToScale bonuses add to the spirit/weapon
@@ -1712,13 +1822,21 @@ export default function SoulLedger(){
                               });
 
                           const ownedComponents = (it.upgradesFrom || []).filter(name => build.some(b => b.n === name));
+                          const ownedUpgradesOfThis = (it.upgradesInto || []).filter(name => build.some(b => b.n === name));
+                          const needsChargeAbility = !!it.mods?.abilityCharges;
+                          const heroHasNoChargeAbilities = needsChargeAbility && !(selectedHero?.abilities || []).some(a => a.charges != null);
+                          const blockedReason = ownedUpgradesOfThis.length > 0
+                            ? `Already own ${ownedUpgradesOfThis.join(', ')} (upgraded from this) — remove it first.`
+                            : heroHasNoChargeAbilities
+                              ? `${selectedHero?.n} has no charge-based abilities — this item has nothing to affect.`
+                              : null;
 
                           return (
                             <div
-                              className={"item-card"+(inBuild?" added":"")}
+                              className={"item-card"+(inBuild?" added":"")+(blockedReason?" disabled-card":"")}
                               data-cat={it.cat}
                               key={it.id || it.n}
-                              onClick={()=>toggleItem(it)}
+                              onClick={()=>{ if (!blockedReason) toggleItem(it); }}
                             >
                               <div>
                                 <div className="item-head">
@@ -1739,6 +1857,7 @@ export default function SoulLedger(){
                                   {it.upgradesInto?.length > 0 && (
                                     <div><strong>Upgrades into:</strong> {it.upgradesInto.join(', ')}</div>
                                   )}
+                                  {blockedReason && <div><strong>Unavailable:</strong> {blockedReason}</div>}
                                 </div>
                               </div>
                               <div className="item-tags">
@@ -1751,6 +1870,7 @@ export default function SoulLedger(){
                                   </span>
                                 )}
                                 {it.upgradesInto?.length > 0 && <span className="tag upgrade-tag">⬆ INTO {it.upgradesInto.join(', ')}</span>}
+                                {it.imbued && <span className="tag imbue-tag" title="Only affects the one ability you imbue it onto">IMBUE — 1 ABILITY</span>}
                               </div>
                             </div>
                           );
@@ -1774,10 +1894,25 @@ export default function SoulLedger(){
                   <div className="cond-empty">Buy an active or conditional item to see its status and activation triggers.</div>
                 ) : conditionalItems.map((it,idx)=>{
                   const badge = it.active ? "ACTIVE — bound to Z / X / C / V" : "CONDITIONAL PASSIVE";
+                  const adjustedItemCooldown = it.activeCooldown == null ? null : Math.max(0, it.activeCooldown * (1 - Math.max(0, totals.cdr || 0) / 100));
                   return (
                     <div className="cond-row" key={it.n+idx}>
                       <div className="item-lbl">{it.n}<small>{badge}</small></div>
-                      <div className="desc">{it.cond ? it.cond : "Manually activated ability — triggers only while used and then goes on cooldown."}</div>
+                      <div className="desc">
+                        {it.active && (it.activeCooldown != null || it.activeDuration != null || it.activeCharges != null) && (
+                          <div>
+                            {it.activeCooldown != null && <span>◷ Cooldown: {round1(it.activeCooldown)}s{adjustedItemCooldown !== it.activeCooldown && ` → ${round1(adjustedItemCooldown)}s with current CDR`}</span>}
+                            {it.activeDuration != null && <span>{it.activeCooldown != null ? " · " : ""}⌛︎ Duration: {round1(it.activeDuration)}s</span>}
+                            {it.activeCharges != null && <span>{(it.activeCooldown != null || it.activeDuration != null) ? " · " : ""}◉ Charges: {round1(it.activeCharges)}{it.activeChargeDelay != null ? ` · ${round1(it.activeChargeDelay)}s recharge` : ""}</span>}
+                          </div>
+                        )}
+                        {it.conditionalEffects?.length > 0 ? it.conditionalEffects.map((ce, ceIdx) => (
+                          <div key={ceIdx}>
+                            <span className="ability-impact">If {ce.condition}</span>
+                            {ce.stats.length > 0 && <>: {ce.stats.map(s => `${s.label} ${s.value}`).join(', ')}</>}
+                          </div>
+                        )) : (!it.active && <div>{it.cond || "Manually activated ability — triggers only while used and then goes on cooldown."}</div>)}
+                      </div>
                     </div>
                   );
                 })}
