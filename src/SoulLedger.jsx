@@ -195,6 +195,9 @@ header.top{
 .delta.pos{ color:var(--vitality); }
 .delta.neg{ color:var(--danger); }
 .delta.zero{ color:var(--text-faint); }
+.delta-conditional{ color:var(--souls); font-weight:600; cursor:help; }
+.stat-tooltip-line.conditional-line{ border-top:1px dashed #ffffff20; margin-top:4px; padding-top:4px; }
+.stat-tooltip-line.conditional-line span{ color:var(--souls); }
 
 .souls-spent{
   margin-top:14px; padding-top:12px; border-top:1px solid var(--line);
@@ -292,19 +295,26 @@ header.top{
 .tag.upgrade-tag.ready{ color:var(--souls); border-color:#5c4c1f; background:#1e1a10; }
 
 /* ===== Hero Abilities Section ===== */
-.abilities-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:10px; }
+.abilities-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:10px; }
 .ability-card{
   background:var(--bg-panel-2); border:1px solid var(--line); border-radius:var(--radius);
   position:relative; padding:10px 12px; display:flex; flex-direction:column; justify-content:space-between;
 }
 .ability-card.ability-locked{ border-color:#3a3030; }
 .ability-lock-symbol{ position:absolute; top:8px; right:9px; color:var(--danger); font-size:18px; opacity:.9; }
-.ability-meta{ margin:5px 0 7px; color:var(--text-dim); font:10.5px/1.45 'IBM Plex Mono',monospace; }
+.ability-meta{ margin:6px 0 8px; color:var(--text-dim); font:10.5px/1.4 'IBM Plex Mono',monospace; }
 .ability-meta b{ color:var(--text); }
 .ability-impact{ color:var(--vitality); }
-.ability-stat-icon{ display:inline-flex; align-items:center; justify-content:center; width:16px; height:14px; color:var(--souls); font-size:13px; line-height:1; vertical-align:-1px; }
-.ability-stat-line{ position:relative; cursor:help; }
+.ability-meta-group{ padding:3px 0; }
+.ability-meta-group + .ability-meta-group{ border-top:1px solid #ffffff0f; margin-top:2px; }
+.ability-stat-icon{ display:inline-flex; align-items:center; justify-content:center; width:15px; height:14px; color:var(--souls); font-size:13px; line-height:1; vertical-align:-1px; flex-shrink:0; }
+.ability-stat-line{
+  position:relative; cursor:help; display:flex; justify-content:space-between; align-items:baseline;
+  gap:8px; padding:2.5px 0;
+}
 .ability-stat-line:hover .stat-tooltip{ display:block; }
+.stat-line-main{ display:flex; align-items:center; gap:3px; color:var(--text-dim); white-space:nowrap; }
+.stat-line-value{ color:var(--text); font-weight:600; text-align:right; white-space:nowrap; }
 .ability-hover-info{ display:none; position:absolute; z-index:25; left:8px; right:8px; top:52px; padding:9px 10px; background:#0d0f12; border:1px solid var(--spirit); border-radius:var(--radius); box-shadow:0 8px 20px #000b; color:var(--text-dim); font-size:11px; line-height:1.45; pointer-events:none; }
 .ability-head{ display:flex; align-items:center; gap:8px; margin-bottom:6px; position:relative; cursor:help; }
 .ability-head:hover + .ability-hover-info{ display:block; }
@@ -624,6 +634,23 @@ function extractLifetimeStats(abilityObj){
   return results.slice(0, 2);
 }
 
+// AbilityCastRange (how far you can target) and Radius (area of effect) - canonical
+// keys, present on most abilities. Raw values sometimes carry an embedded unit suffix
+// (e.g. "7m"), so parseFloat rather than Number to avoid silently reading NaN.
+function extractRangeStats(abilityObj){
+  if (!abilityObj?.properties) return [];
+  const results = [];
+  [["AbilityCastRange", "Cast Range"], ["Radius", "Radius"]].forEach(([key, fallbackLabel]) => {
+    const prop = abilityObj.properties[key];
+    if (!prop) return;
+    const value = parseFloat(prop.value);
+    if (isNaN(value) || value === 0) return;
+    if (prop.disable_value !== undefined && String(prop.disable_value) === String(prop.value)) return;
+    results.push({ key, label: prop.label || fallbackLabel, value });
+  });
+  return results;
+}
+
 function numOrNull(p){
   const n = Number(p?.value);
   return (p && !isNaN(n) && n !== 0) ? n : null;
@@ -662,6 +689,27 @@ function itemAppliesToAbility(item, abilityKey, imbueTargets, hero){
   return target === abilityKey;
 }
 
+// Every raw property carries a `provided_property_type` enum that reliably identifies
+// which underlying game stat it feeds, regardless of the property's own key name (which
+// varies a lot - e.g. MaxArmorStacks/BulletResistPerStack/BulletResist all feed
+// MODIFIER_VALUE_BULLET_ARMOR_DAMAGE_RESIST). Map the ones that correspond to a stat we
+// already track in STAT_DEFS, so conditional bonuses can be attributed to the right row.
+const PROPERTY_TYPE_TO_STAT = {
+  MODIFIER_VALUE_HEALTH_MAX: "hp",
+  MODIFIER_VALUE_HEALTH_REGEN_PER_SECOND: "regen",
+  MODIFIER_VALUE_OUT_OF_COMBAT_HEALTH_REGEN: "regen",
+  MODIFIER_VALUE_WEAPON_DAMAGE_INCREASE: "dmg",
+  MODIFIER_VALUE_ALL_DAMAGE_MULTIPLIER: "dmg",
+  MODIFIER_VALUE_TECH_POWER: "spirit",
+  MODIFIER_VALUE_FIRE_RATE: "fireRate",
+  MODIFIER_VALUE_BULLET_ARMOR_DAMAGE_RESIST: "bulletArmor",
+  MODIFIER_VALUE_TECH_RESIST: "spiritArmor",
+  MODIFIER_VALUE_COOLDOWN_REDUCTION_PERCENTAGE: "cdr",
+  MODIFIER_VALUE_STAMINA: "stamina",
+  MODIFIER_VALUE_AMMO_CLIP_SIZE_PERCENT: "clipPct",
+  MODIFIER_VALUE_AMMO_CLIP_SIZE: "clip",
+};
+
 // tooltip_sections' "innate" section lists properties that are always active. Other
 // sections (usually "passive") have a loc_string, but that text is sometimes just a
 // flat description of an unconditional passive (e.g. Superior Cooldown: "Reduces the
@@ -677,15 +725,33 @@ function extractConditionalEffects(rawItem){
     (section.section_attributes || []).forEach(attr => {
       const condition = cleanApiText(attr.loc_string);
       if (!condition || !CONDITION_CUE_WORDS.test(condition)) return;
-      const propKeys = [...(attr.important_properties || []), ...(attr.properties || [])];
-      const stats = propKeys.map(propKey => {
+      const buildStat = propKey => {
         const propDef = rawItem.properties?.[propKey];
         const val = Number(propDef?.value);
         if (!propDef || isNaN(val) || val === 0) return null;
         const sign = val > 0 ? "+" : "";
-        return { label: propDef.label || propKey, value: sign + val + (propDef.postfix || "") };
-      }).filter(Boolean);
-      results.push({ condition, stats });
+        return {
+          label: propDef.label || propKey,
+          value: sign + val + (propDef.postfix || ""),
+          statKey: PROPERTY_TYPE_TO_STAT[propDef.provided_property_type] || null,
+          rawValue: val,
+        };
+      };
+      // important_properties is the headline number (e.g. Escalating Resilience's
+      // "Max Bullet Resist" cap) - the one worth surfacing on the stat sheet itself.
+      // properties are supporting context (per-stack amount, stack duration, etc.)
+      // shown only in the conditional-effects panel text. The headline property often
+      // has no provided_property_type of its own (e.g. MaxArmorStacks) even though a
+      // sibling property in the same section does (BulletResistPerStack) - resolve the
+      // stat key from whichever property in the section actually carries it.
+      const allKeys = [...(attr.important_properties || []), ...(attr.properties || [])];
+      const sectionStatKey = allKeys
+        .map(propKey => PROPERTY_TYPE_TO_STAT[rawItem.properties?.[propKey]?.provided_property_type])
+        .find(Boolean) || null;
+      const primaryStats = (attr.important_properties || []).map(buildStat).filter(Boolean)
+        .map(s => ({ ...s, statKey: s.statKey || sectionStatKey }));
+      const otherStats = (attr.properties || []).map(buildStat).filter(Boolean);
+      results.push({ condition, stats: [...primaryStats, ...otherStats], primaryStats: primaryStats.filter(s => s.statKey) });
     });
   });
   return results.slice(0, 3);
@@ -698,6 +764,7 @@ function extractAbilityMeta(abilityObj){
     ...timing,
     damageStats: extractDamageStats(abilityObj),
     lifetimeStats: extractLifetimeStats(abilityObj),
+    rangeStats: extractRangeStats(abilityObj),
   };
 }
 
@@ -805,6 +872,7 @@ async function fetchDeadlockData(signal){
             chargeDelay: meta.chargeDelay,
             damageStats: meta.damageStats,
             lifetimeStats: meta.lifetimeStats,
+            rangeStats: meta.rangeStats,
             upgrades
           };
         });
@@ -881,6 +949,8 @@ async function fetchDeadlockData(signal){
           else if (['ImbuedBonusDuration', 'BonusAbilityDurationPercent', 'AbilityDuration'].includes(k)) mods.abilityDuration = val;
           else if (['AbilityCharges', 'BonusAbilityCharges', 'AdditionalAbilityCharges', 'MaxAbilityCharges'].includes(k)) mods.abilityCharges = val;
           else if (['Stamina', 'BonusStamina'].includes(k)) mods.stamina = val;
+          else if (['TechRangeMultiplier', 'TechRangeMultiplierBuff'].includes(k)) mods.abilityRange = val;
+          else if (['TechRadiusMultiplier', 'TechRadiusMultiplierBuff'].includes(k)) mods.abilityRadius = val;
 
           const sign = val > 0 ? '+' : '';
           const postfix = p.postfix || '';
@@ -1293,6 +1363,21 @@ export default function SoulLedger(){
 
   const conditionalItems = useMemo(()=>build.filter(it=>it.active || it.cond), [build]);
 
+  // How much each stat COULD gain if every owned conditional effect were active at once
+  // (e.g. Escalating Resilience's Bullet Resist stacked to its cap) - shown as a
+  // potential, not added to the real total, since conditions aren't always true.
+  const conditionalPotential = useMemo(() => {
+    const totals = {};
+    build.forEach(it => {
+      (it.conditionalEffects || []).forEach(ce => {
+        (ce.primaryStats || []).forEach(s => {
+          totals[s.statKey] = (totals[s.statKey] || 0) + s.rawValue;
+        });
+      });
+    });
+    return totals;
+  }, [build]);
+
   function getStatBreakdown(statKey, statDef){
     const lines = [{ label: `Base ${selectedHero.n}`, value: baseValue(selectedHero, statKey) }];
     const raw = computeRawTotals(build);
@@ -1536,11 +1621,15 @@ export default function SoulLedger(){
                   const breakdown = getStatBreakdown(s.k, s);
                   const deltaClass = delta > 0 ? "pos" : (delta < 0 ? "neg" : "zero");
                   const deltaTxt = delta === 0 ? "—" : (delta > 0 ? "+"+round1(delta) : round1(delta)) + s.unit;
+                  const conditionalBonus = conditionalPotential[s.k] || 0;
                   return (
                     <div className="stat-row" key={s.k}>
                       <span className="label">{s.label}</span>
                       <span className="total">{round1(total)}{s.unit}</span>
-                      <span className={"delta "+deltaClass}>{deltaTxt}</span>
+                      <span className={"delta "+deltaClass}>
+                        {deltaTxt}
+                        {conditionalBonus !== 0 && <span className="delta-conditional" title="Potential bonus while owned conditional items are active">{" "}{conditionalBonus>0?"+":""}{round1(conditionalBonus)}{s.unit}</span>}
+                      </span>
                       <div className="stat-tooltip">
                         <div className="stat-tooltip-title">{s.label} breakdown</div>
                         {breakdown.map((line, index) => (
@@ -1548,6 +1637,11 @@ export default function SoulLedger(){
                             <span>{line.label}</span><b>{line.display}</b>
                           </div>
                         ))}
+                        {conditionalBonus !== 0 && (
+                          <div className="stat-tooltip-line conditional-line">
+                            <span>Max potential (all conditionals active)</span><b>{round1(total + conditionalBonus)}{s.unit}</b>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -1651,6 +1745,16 @@ export default function SoulLedger(){
                       const upgradeFlatBonus = activeUpgradeBonuses.filter(b => b.prop === stat.key).reduce((sum, b) => sum + Number(b.bonus || 0), 0);
                       return { ...stat, upgradeFlatBonus, total: stat.value + upgradeFlatBonus };
                     });
+                    // Cast Range and Radius each have their own item %-bonus stat (imbue-aware,
+                    // same as cooldown/duration), plus any flat upgrade bonus on that exact key.
+                    const itemRangePct = build.reduce((sum, item) => sum + (itemAppliesToAbility(item, ab.key, imbueTargets, selectedHero) ? (item.mods?.abilityRange || 0) : 0), 0);
+                    const itemRadiusPct = build.reduce((sum, item) => sum + (itemAppliesToAbility(item, ab.key, imbueTargets, selectedHero) ? (item.mods?.abilityRadius || 0) : 0), 0);
+                    const effectiveRangeStats = (ab.rangeStats || []).map(stat => {
+                      const upgradeFlatBonus = activeUpgradeBonuses.filter(b => b.prop === stat.key).reduce((sum, b) => sum + Number(b.bonus || 0), 0);
+                      const itemPct = stat.key === "Radius" ? itemRadiusPct : itemRangePct;
+                      const total = Math.max(0, stat.value + upgradeFlatBonus) * (1 + itemPct / 100);
+                      return { ...stat, upgradeFlatBonus, itemPct, total };
+                    });
                     return <div className={"ability-card" + (abilityUnlocked ? "" : " ability-locked")} key={ab.key}>
                       {lockUnavailable && <span className="ability-lock-symbol" title={abilityIndex === 3 ? "Ultimate unlocks at level 7" : "Earn an ability unlock to choose this ability"}>🔒</span>}
                       <div>
@@ -1665,66 +1769,93 @@ export default function SoulLedger(){
                           <b>{ab.name}</b>
                           <div>{ab.description || "No additional description available."}</div>
                         </div>
-                        {(effectiveDamageStats.length > 0 || effectiveLifetimeStats.length > 0 || ab.cooldown != null || ab.duration != null || effectiveCharges != null) && (
+                        {(effectiveDamageStats.length > 0 || effectiveLifetimeStats.length > 0 || effectiveRangeStats.length > 0 || ab.cooldown != null || ab.duration != null || effectiveCharges != null) && (
                           <div className="ability-meta">
-                            {effectiveDamageStats.map(d => (
-                              <div className="ability-stat-line" key={d.key}>
-                                <span className="ability-stat-icon">✦</span><b>{d.label}:</b> {round1(d.total)}
-                                {(d.spiritScale > 0 || d.weaponScale > 0) && (
-                                  <span className="ability-impact">
-                                    {" "}({round1(d.base)}{d.spiritScale > 0 ? ` +${round1(d.spiritScale)}×Spirit` : ""}{d.weaponScale > 0 ? ` +${round1(d.weaponScale)}×WpnDmg` : ""})
-                                  </span>
+                            {effectiveDamageStats.length > 0 && (
+                              <div className="ability-meta-group">
+                                {effectiveDamageStats.map(d => (
+                                  <div className="ability-stat-line" key={d.key}>
+                                    <span className="stat-line-main"><span className="ability-stat-icon">✦</span>{d.label}</span>
+                                    <span className="stat-line-value">
+                                      {round1(d.total)}
+                                      {(d.spiritScale > 0 || d.weaponScale > 0) && (
+                                        <span className="ability-impact">
+                                          {" "}({round1(d.base)}{d.spiritScale > 0 ? ` +${round1(d.spiritScale)}×Spirit` : ""}{d.weaponScale > 0 ? ` +${round1(d.weaponScale)}×WpnDmg` : ""})
+                                        </span>
+                                      )}
+                                    </span>
+                                    <CalcTooltip title={`${d.label} breakdown`} lines={[
+                                      { label: "Ability base", value: round1(d.base - d.upgradeFlatBonus) },
+                                      d.upgradeFlatBonus !== 0 && { label: "Upgrade bonus", value: (d.upgradeFlatBonus > 0 ? "+" : "") + round1(d.upgradeFlatBonus) },
+                                      d.spiritScale !== 0 && { label: `Spirit Power (${round1(d.spiritScale)}× of ${round1(totals.spirit || 0)})`, value: "+" + round1(d.spiritBonus) },
+                                      d.weaponScale !== 0 && { label: `Weapon Damage (${round1(d.weaponScale)}× of ${round1(totals.dmg || 0)})`, value: "+" + round1(d.weaponBonus) },
+                                      { label: "Total", value: round1(d.total) },
+                                    ]} />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {(effectiveLifetimeStats.length > 0 || effectiveRangeStats.length > 0 || ab.cooldown != null || ab.duration != null || effectiveCharges != null) && (
+                              <div className="ability-meta-group">
+                                {effectiveLifetimeStats.map(ls => (
+                                  <div className="ability-stat-line" key={ls.key}>
+                                    <span className="stat-line-main"><span className="ability-stat-icon">⌛︎</span>{ls.label}</span>
+                                    <span className="stat-line-value">{round1(ls.total)}s</span>
+                                    <CalcTooltip title={`${ls.label} breakdown`} lines={[
+                                      { label: "Ability base", value: round1(ls.value) + "s" },
+                                      ls.upgradeFlatBonus !== 0 && { label: "Upgrade bonus", value: (ls.upgradeFlatBonus > 0 ? "+" : "") + round1(ls.upgradeFlatBonus) + "s" },
+                                      { label: "Total", value: round1(ls.total) + "s" },
+                                    ]} />
+                                  </div>
+                                ))}
+                                {effectiveRangeStats.map(rs => (
+                                  <div className="ability-stat-line" key={rs.key}>
+                                    <span className="stat-line-main"><span className="ability-stat-icon">◎</span>{rs.label}</span>
+                                    <span className="stat-line-value">{round1(rs.total)}m</span>
+                                    <CalcTooltip title={`${rs.label} breakdown`} lines={[
+                                      { label: "Ability base", value: round1(rs.value) + "m" },
+                                      rs.upgradeFlatBonus !== 0 && { label: "Upgrade bonus", value: (rs.upgradeFlatBonus > 0 ? "+" : "") + round1(rs.upgradeFlatBonus) + "m" },
+                                      rs.itemPct !== 0 && { label: "Item bonus", value: "+" + round1(rs.itemPct) + "%" },
+                                      { label: "Total", value: round1(rs.total) + "m" },
+                                    ]} />
+                                  </div>
+                                ))}
+                                {ab.cooldown != null && (
+                                  <div className="ability-stat-line">
+                                    <span className="stat-line-main"><span className="ability-stat-icon">◷</span>Cooldown</span>
+                                    <span className="stat-line-value">{round1(ab.cooldown)}s {adjustedCooldown !== ab.cooldown && <span className="ability-impact">→ {round1(adjustedCooldown)}s</span>}</span>
+                                    <CalcTooltip title="Cooldown breakdown" lines={[
+                                      { label: "Ability base", value: round1(ab.cooldown) + "s" },
+                                      upgradeCooldownDelta !== 0 && { label: "Upgrade bonus", value: (upgradeCooldownDelta > 0 ? "+" : "") + round1(upgradeCooldownDelta) + "s" },
+                                      itemCdr !== 0 && { label: "Cooldown reduction (items)", value: "-" + round1(itemCdr) + "%" },
+                                      { label: "Total", value: round1(adjustedCooldown) + "s" },
+                                    ]} />
+                                  </div>
                                 )}
-                                <CalcTooltip title={`${d.label} breakdown`} lines={[
-                                  { label: "Ability base", value: round1(d.base - d.upgradeFlatBonus) },
-                                  d.upgradeFlatBonus !== 0 && { label: "Upgrade bonus", value: (d.upgradeFlatBonus > 0 ? "+" : "") + round1(d.upgradeFlatBonus) },
-                                  d.spiritScale !== 0 && { label: `Spirit Power (${round1(d.spiritScale)}× of ${round1(totals.spirit || 0)})`, value: "+" + round1(d.spiritBonus) },
-                                  d.weaponScale !== 0 && { label: `Weapon Damage (${round1(d.weaponScale)}× of ${round1(totals.dmg || 0)})`, value: "+" + round1(d.weaponBonus) },
-                                  { label: "Total", value: round1(d.total) },
-                                ]} />
-                              </div>
-                            ))}
-                            {effectiveLifetimeStats.map(ls => (
-                              <div className="ability-stat-line" key={ls.key}>
-                                <span className="ability-stat-icon">⌛︎</span><b>{ls.label}:</b> {round1(ls.total)}s
-                                <CalcTooltip title={`${ls.label} breakdown`} lines={[
-                                  { label: "Ability base", value: round1(ls.value) + "s" },
-                                  ls.upgradeFlatBonus !== 0 && { label: "Upgrade bonus", value: (ls.upgradeFlatBonus > 0 ? "+" : "") + round1(ls.upgradeFlatBonus) + "s" },
-                                  { label: "Total", value: round1(ls.total) + "s" },
-                                ]} />
-                              </div>
-                            ))}
-                            {ab.cooldown != null && (
-                              <div className="ability-stat-line">
-                                <span className="ability-stat-icon">◷</span><b>Cooldown:</b> {round1(ab.cooldown)}s {adjustedCooldown !== ab.cooldown && <span className="ability-impact">→ {round1(adjustedCooldown)}s</span>}
-                                <CalcTooltip title="Cooldown breakdown" lines={[
-                                  { label: "Ability base", value: round1(ab.cooldown) + "s" },
-                                  upgradeCooldownDelta !== 0 && { label: "Upgrade bonus", value: (upgradeCooldownDelta > 0 ? "+" : "") + round1(upgradeCooldownDelta) + "s" },
-                                  itemCdr !== 0 && { label: "Cooldown reduction (items)", value: "-" + round1(itemCdr) + "%" },
-                                  { label: "Total", value: round1(adjustedCooldown) + "s" },
-                                ]} />
-                              </div>
-                            )}
-                            {ab.duration != null && (
-                              <div className="ability-stat-line">
-                                <span className="ability-stat-icon">⌛︎</span><b>Duration:</b> {round1(ab.duration)}s {adjustedDuration !== ab.duration && <span className="ability-impact">→ {round1(adjustedDuration)}s</span>}
-                                <CalcTooltip title="Duration breakdown" lines={[
-                                  { label: "Ability base", value: round1(ab.duration) + "s" },
-                                  upgradeDurationDelta !== 0 && { label: "Upgrade bonus", value: (upgradeDurationDelta > 0 ? "+" : "") + round1(upgradeDurationDelta) + "s" },
-                                  abilityDurationPct !== 0 && { label: "Duration bonus (items)", value: "+" + round1(abilityDurationPct) + "%" },
-                                  { label: "Total", value: round1(adjustedDuration) + "s" },
-                                ]} />
-                              </div>
-                            )}
-                            {effectiveCharges != null && (
-                              <div className="ability-stat-line">
-                                <span className="ability-stat-icon">◉</span><b>Charges:</b> {round1(effectiveCharges)}{ab.chargeDelay != null && ` · ${round1(ab.chargeDelay)}s recharge`}
-                                <CalcTooltip title="Charges breakdown" lines={[
-                                  { label: "Ability base", value: round1(ab.charges) },
-                                  itemChargeBonus !== 0 && { label: "Item bonus", value: (itemChargeBonus > 0 ? "+" : "") + round1(itemChargeBonus) },
-                                  upgradeChargeBonus !== 0 && { label: "Upgrade bonus", value: (upgradeChargeBonus > 0 ? "+" : "") + round1(upgradeChargeBonus) },
-                                  { label: "Total", value: round1(effectiveCharges) },
-                                ]} />
+                                {ab.duration != null && (
+                                  <div className="ability-stat-line">
+                                    <span className="stat-line-main"><span className="ability-stat-icon">⌛︎</span>Duration</span>
+                                    <span className="stat-line-value">{round1(ab.duration)}s {adjustedDuration !== ab.duration && <span className="ability-impact">→ {round1(adjustedDuration)}s</span>}</span>
+                                    <CalcTooltip title="Duration breakdown" lines={[
+                                      { label: "Ability base", value: round1(ab.duration) + "s" },
+                                      upgradeDurationDelta !== 0 && { label: "Upgrade bonus", value: (upgradeDurationDelta > 0 ? "+" : "") + round1(upgradeDurationDelta) + "s" },
+                                      abilityDurationPct !== 0 && { label: "Duration bonus (items)", value: "+" + round1(abilityDurationPct) + "%" },
+                                      { label: "Total", value: round1(adjustedDuration) + "s" },
+                                    ]} />
+                                  </div>
+                                )}
+                                {effectiveCharges != null && (
+                                  <div className="ability-stat-line">
+                                    <span className="stat-line-main"><span className="ability-stat-icon">◉</span>Charges</span>
+                                    <span className="stat-line-value">{round1(effectiveCharges)}{ab.chargeDelay != null && ` · ${round1(ab.chargeDelay)}s recharge`}</span>
+                                    <CalcTooltip title="Charges breakdown" lines={[
+                                      { label: "Ability base", value: round1(ab.charges) },
+                                      itemChargeBonus !== 0 && { label: "Item bonus", value: (itemChargeBonus > 0 ? "+" : "") + round1(itemChargeBonus) },
+                                      upgradeChargeBonus !== 0 && { label: "Upgrade bonus", value: (upgradeChargeBonus > 0 ? "+" : "") + round1(upgradeChargeBonus) },
+                                      { label: "Total", value: round1(effectiveCharges) },
+                                    ]} />
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1823,7 +1954,11 @@ export default function SoulLedger(){
 
                           const ownedComponents = (it.upgradesFrom || []).filter(name => build.some(b => b.n === name));
                           const ownedUpgradesOfThis = (it.upgradesInto || []).filter(name => build.some(b => b.n === name));
-                          const needsChargeAbility = !!it.mods?.abilityCharges;
+                          // Only gate items whose ENTIRE value is the charge bonus (Extra Charge,
+                          // Rapid Recharge, etc. - mods has nothing but abilityCharges). Items like
+                          // Cultist Sacrifice also grant a minor charge bonus alongside several other
+                          // broadly-useful stats (dmg/hp/regen/NPC bonuses) and shouldn't be blocked.
+                          const needsChargeAbility = !!it.mods?.abilityCharges && Object.keys(it.mods).length === 1;
                           const heroHasNoChargeAbilities = needsChargeAbility && !(selectedHero?.abilities || []).some(a => a.charges != null);
                           const blockedReason = ownedUpgradesOfThis.length > 0
                             ? `Already own ${ownedUpgradesOfThis.join(', ')} (upgraded from this) — remove it first.`
@@ -1851,6 +1986,14 @@ export default function SoulLedger(){
                                   <b>{it.n}</b>
                                   <div>{it.effect}</div>
                                   {it.cond && <div><strong>Condition:</strong> {it.cond}</div>}
+                                  {it.active && (it.activeCooldown != null || it.activeDuration != null || it.activeCharges != null) && (
+                                    <div><strong>Active:</strong> {[
+                                      it.activeCooldown != null && `${round1(it.activeCooldown)}s cooldown`,
+                                      it.activeDuration != null && `${round1(it.activeDuration)}s duration`,
+                                      it.activeCharges != null && `${round1(it.activeCharges)} charges`,
+                                    ].filter(Boolean).join(' · ')}</div>
+                                  )}
+                                  {it.imbued && <div><strong>Imbue:</strong> Only affects the one ability you imbue it onto after buying — pick it from the dropdown next to the item in your build.</div>}
                                   {it.upgradesFrom?.length > 0 && (
                                     <div><strong>Upgrades from:</strong> {it.upgradesFrom.join(', ')}{ownedComponents.length > 0 ? ' — owned, buying this absorbs it' : ''}</div>
                                   )}
